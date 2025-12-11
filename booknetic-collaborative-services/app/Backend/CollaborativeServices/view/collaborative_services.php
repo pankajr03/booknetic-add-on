@@ -1,56 +1,55 @@
-<div class="bkntc-collaborative-services">
-    <h2><?php echo bkntc__('Collaborative Services view'); ?></h2>
-    
-    <form id="collaborative-services-form">
-        <div class="bkntc-form-group">
-            <label for="service_name"><?php echo bkntc__('Service Name'); ?></label>
-            <input type="text" id="service_name" name="service_name" class="form-control" placeholder="<?php echo bkntc__('Enter service name'); ?>">
+<?php
+// Load saved settings
+$collaborative_enabled = get_option('bkntc_collaborative_services_enabled', 'off');
+$guest_info_required = get_option('bkntc_collaborative_guest_info_required', 'optional');
+?>
+
+<div id="booknetic_settings_area">
+    <form id="collaborative_services_area">
+        <div class="form-row">
+            <div class="form-group col-md-12">
+                <label for="input_collaborative_enabled"><?php echo bkntc__('Enable Collaborative Booking'); ?></label>
+                <select class="form-control" id="input_collaborative_enabled" name="collaborative_enabled">
+                    <option value="off" <?php selected($collaborative_enabled, 'off'); ?>><?php echo bkntc__('Disabled'); ?></option>
+                    <option value="on" <?php selected($collaborative_enabled, 'on'); ?>><?php echo bkntc__('Enabled'); ?></option>
+                </select>
+                <small class="form-text text-muted"><?php echo bkntc__('Activate or deactivate collaborative booking functionality globally'); ?></small>
+            </div>
         </div>
 
-        <button type="submit" class="btn btn-primary"><?php echo bkntc__('Save Settings'); ?></button>
+        <div class="form-row">
+            <div class="form-group col-md-12">
+                <label for="input_guest_info_required"><?php echo bkntc__('Guest Customer Information'); ?></label>
+                <select class="form-control" id="input_guest_info_required" name="guest_info_required">
+                    <option value="optional" <?php selected($guest_info_required, 'optional'); ?>><?php echo bkntc__('Optional'); ?></option>
+                    <option value="required" <?php selected($guest_info_required, 'required'); ?>><?php echo bkntc__('Required'); ?></option>
+                </select>
+                <small class="form-text text-muted"><?php echo bkntc__('Set whether guest information fields are required or optional during booking'); ?></small>
+            </div>
+        </div>
+
+        <button type="button" class="btn btn-lg btn-success" id="collaborative_services_save_btn">
+            <i class="fa fa-check pr-2"></i><?php echo bkntc__('SAVE CHANGES')?>
+        </button>
     </form>
 </div>
 
-<script>
-document.getElementById('collaborative-services-form')?.addEventListener('submit', function(e) {
-    e.preventDefault();
-    
-    const formData = new FormData(this);
-    const data = Object.fromEntries(formData);
+<script type="application/javascript">
+(function($) {
+    "use strict";
 
-    booknetic.ajax('settings.collaborative_services.save', data, {
-        success: function(response) {
-            if (response.success) {
-                booknetic.notify('success', response.message);
-            }
-        },
-        error: function(error) {
-            booknetic.notify('error', error.message || 'Error saving settings');
-        }
+    $(document).ready(function() {
+        $('#collaborative_services_save_btn').on('click', function() {
+            var data = new FormData($('#collaborative_services_area')[0]);
+
+            // Use collaborative_services.save to match submenu action
+            data.append('module', 'settings');
+            data.append('action', 'collaborative_services.save');
+            booknetic.ajax('collaborative_services.save', data, function(result) {
+                booknetic.toast(result.message || booknetic.__('saved_successfully'), 'success');
+            });
+        });
     });
-});
+
+})(jQuery);
 </script>
-
-<style>
-.bkntc-collaborative-services {
-    padding: 20px;
-}
-
-.bkntc-form-group {
-    margin-bottom: 20px;
-}
-
-.bkntc-form-group label {
-    display: block;
-    margin-bottom: 8px;
-    font-weight: 500;
-}
-
-.bkntc-form-group input {
-    width: 100%;
-    max-width: 400px;
-    padding: 8px 12px;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-}
-</style>

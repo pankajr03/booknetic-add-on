@@ -1,10 +1,10 @@
 <?php
 /**
  * Plugin Name: Booknetic - Collaborative Services
- * Plugin URI:  https://yourwebsite.com
+ * Plugin URI:  https://github.com/pankajr03/booknetic-add-on
  * Description: Add Collaborative Services menu to Booknetic Settings
  * Version:     1.0.0
- * Author:      Your Name
+ * Author:      Pankaj Kumar
  * Text Domain: bkntc-collab
  */
 
@@ -106,13 +106,42 @@ final class BookneticCollaborativeServices {
 
         $action = isset($_POST['action']) ? $_POST['action'] : (isset($_GET['action']) ? $_GET['action'] : '');
         
-        if (function_exists('bkntc_cs_log')) bkntc_cs_log('maybe_handle_booknetic_ajax: action=' . $action);
+        if (function_exists('bkntc_cs_log')) {
+            bkntc_cs_log('maybe_handle_booknetic_ajax: action=' . $action . ' | POST: ' . json_encode($_POST));
+        }
         
-        // Check if this is our collaborative_services action
-        if ($action !== 'collaborative_services' && $action !== 'settings.collaborative_services') return;
+        // Intercept if this is our action OR if our fields are present (Booknetic core might post with generic 'save')
+        $has_our_fields = isset($_POST['collaborative_enabled']) || isset($_POST['guest_info_required']);
+        if (strpos($action, 'collaborative_services') === false && !$has_our_fields) return;
 
         if (function_exists('bkntc_cs_log')) bkntc_cs_log('maybe_handle_booknetic_ajax: intercepted AJAX for action=' . $action);
 
+        // Handle save action
+        if ($action === 'collaborative_services.save' || $action === 'settings.collaborative_services.save' || $action === 'save' || $has_our_fields) {
+            
+            // Check permissions
+            if (!current_user_can('manage_options')) {
+                echo json_encode(['status' => 'error', 'message' => 'Permission denied']);
+                exit;
+            }
+            
+            // Get and sanitize settings
+            $collaborative_enabled = isset($_POST['collaborative_enabled']) ? sanitize_text_field($_POST['collaborative_enabled']) : 'off';
+            $guest_info_required = isset($_POST['guest_info_required']) ? sanitize_text_field($_POST['guest_info_required']) : 'optional';
+
+            // Save settings
+            update_option('bkntc_collaborative_services_enabled', $collaborative_enabled);
+            update_option('bkntc_collaborative_guest_info_required', $guest_info_required);
+
+            if (function_exists('bkntc_cs_log')) {
+                bkntc_cs_log('maybe_handle_booknetic_ajax: saved - enabled=' . $collaborative_enabled . ' guest_info=' . $guest_info_required);
+            }
+
+            echo json_encode(['status' => 'ok', 'message' => bkntc__('Settings saved successfully')]);
+            exit;
+        }
+
+        // Handle view action
         $view_file = BKNTCCS_PLUGIN_DIR . 'app/Backend/CollaborativeServices/view/collaborative_services.php';
         if (!file_exists($view_file)) {
             if (function_exists('bkntc_cs_log')) bkntc_cs_log('maybe_handle_booknetic_ajax: view missing: ' . $view_file);
@@ -207,7 +236,7 @@ final class BookneticCollaborativeServices {
         \BookneticApp\Providers\Core\Route::post(
             'settings',
             'BookneticApp\\Backend\\CollaborativeServices\\Controller',
-            ['settings', 'collaborative_services', 'settings.collaborative_services', 'save', 'settings.collaborative_services.save']
+            ['collaborative_services', 'collaborative_services.save', 'settings.collaborative_services', 'save', 'settings.collaborative_services.save']
         );
             if (function_exists('bkntc_cs_log')) bkntc_cs_log('register_routes: routes registered for module=settings');
     }

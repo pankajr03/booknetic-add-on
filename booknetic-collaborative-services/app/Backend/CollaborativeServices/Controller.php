@@ -1,76 +1,69 @@
 <?php
+
 namespace BookneticApp\Backend\CollaborativeServices;
 
-if (class_exists(__NAMESPACE__ . '\Controller')) {
-    return; // ✅ Prevent double declaration at PHP level
-}
-
-use BookneticApp\Providers\Core\Controller as BaseController;
 use BookneticApp\Providers\Core\Capabilities;
-use BookneticApp\Providers\Helpers\Helper;
 
-class Controller extends BaseController
-{
-    public function index()
-    {
+class Controller {
+
+    public function collaborative_services() {
+        // Check user capabilities
+        if (function_exists('bkntc_cs_log')) bkntc_cs_log('Controller::collaborative_services called');
         Capabilities::must('settings');
 
-        $settings = get_option('booknetic_collaborative_services', [
-            'enabled'           => 0,
-            'max_collaborators' => 3,
-            'notify_all_staff'  => 1,
-            'notify_changes'    => 1,
-        ]);
-
-        return $this->view('index', [
-            'settings'   => $settings,
-            'page_title' => 'Collaborative Services',
-            'description'=> 'Configure multi staff collaboration'
-        ]);
+        // Check whether view file exists and log
+        $view_file = BKNTCCS_PLUGIN_DIR . 'app/Backend/CollaborativeServices/view/collaborative_services.php';
+        if (function_exists('bkntc_cs_log')) bkntc_cs_log('Controller::collaborative_services view exists=' . (file_exists($view_file) ? 'yes' : 'no') . ' path=' . $view_file);
+        return $this->settings_collaborative_services();
     }
 
-    /**
-     * Action method so Booknetic can route action=collaborative_services to this method
-     */
-    public function collaborative_services()
-    {
-        return $this->index();
-    }
-
-    /**
-     * Handle the full dot-format action name that JavaScript sends
-     */
     public function settings_collaborative_services()
     {
-        return $this->collaborative_services();
+        if (function_exists('bkntc_cs_log')) bkntc_cs_log('Controller::settings_collaborative_services called');
+        Capabilities::must('settings');
+
+        // Log and return the view using the full view path helper
+        $view_file = BKNTCCS_PLUGIN_DIR . 'app/Backend/CollaborativeServices/view/collaborative_services.php';
+        if (function_exists('bkntc_cs_log')) bkntc_cs_log('Controller::settings_collaborative_services view exists=' . (file_exists($view_file) ? 'yes' : 'no') . ' path=' . $view_file);
+
+        return view('Backend.CollaborativeServices.view.collaborative_services');
     }
 
-    public function save()
-    {
+    public function save() {
+        // Check user capabilities
+        if (function_exists('bkntc_cs_log')) bkntc_cs_log('Controller::save called with POST data: ' . print_r($_POST, true));
         Capabilities::must('settings');
-        Helper::validateNonce();
 
-        $settings = [
-            'enabled'           => Helper::_post('enabled', '0', 'string') === '1' ? 1 : 0,
-            'max_collaborators' => (int) Helper::_post('max_collaborators', '3', 'int'),
-            'notify_all_staff'  => Helper::_post('notify_all_staff', '1', 'string') === '1' ? 1 : 0,
-            'notify_changes'    => Helper::_post('notify_changes', '1', 'string') === '1' ? 1 : 0,
-            'updated_at'        => current_time('mysql')
-        ];
+        // Save collaborative services settings
+        $settings = request()->post();
 
-        update_option('booknetic_collaborative_services', $settings);
+        // Sanitize and save the data
+        update_option('bkntc_collaborative_services_settings', $settings);
 
-        return $this->response(true, [
-            'message'  => 'Settings saved',
-            'settings' => $settings
+        if (function_exists('bkntc_cs_log')) bkntc_cs_log('Controller::save saved settings: ' . print_r($settings, true));
+
+        return response(200, [
+            'success' => true,
+            'message' => bkntc__('Settings saved successfully')
         ]);
     }
 
-    /**
-     * Handle the full dot-format save action: settings.collaborative_services.save
-     */
-    public function settings_collaborative_services_save()
+    public function settings()
     {
-        return $this->save();
+        if (function_exists('bkntc_cs_log')) bkntc_cs_log('Controller::settings called with GET=' . print_r($_GET, true) . ' POST=' . print_r($_POST, true));
+
+        $view = isset($_REQUEST['view']) ? $_REQUEST['view'] : (isset($_REQUEST['action']) ? $_REQUEST['action'] : '');
+
+        // normalize view names
+        if ($view === 'settings.collaborative_services' || $view === 'collaborative_services' || $view === 'settings.collaborative-services') {
+            return $this->settings_collaborative_services();
+        }
+
+        if (function_exists('bkntc_cs_log')) bkntc_cs_log('Controller::settings: unknown view requested: ' . $view);
+
+        return response(404, [
+            'success' => false,
+            'message' => bkntc__('Page not found or access denied!')
+        ]);
     }
 }

@@ -49,6 +49,263 @@ final class BookneticCollaborativeServices {
         add_action('admin_init', [$this, 'log_request_params'], 5);
         // Intercept Booknetic AJAX settings requests
         add_action('admin_init', [$this, 'maybe_handle_booknetic_ajax'], 1);
+        
+        // Initialize Service Category Collaborative features
+        add_action('admin_init', [$this, 'init_service_category_collaborative'], 5);
+        add_action('admin_enqueue_scripts', [$this, 'enqueue_service_category_assets']);
+        add_action('admin_print_scripts', [$this, 'inject_service_category_scripts']);
+        add_action('admin_print_footer_scripts', [$this, 'inject_service_category_scripts']);
+        add_action('admin_head', [$this, 'inject_service_category_scripts']);
+        
+        // Register AJAX handlers directly
+        add_action('wp_ajax_bkntc_collab_get_staff_list', [$this, 'ajax_get_staff_list']);
+        add_action('wp_ajax_bkntc_collab_save_category_settings', [$this, 'ajax_save_category_settings']);
+        add_action('wp_ajax_bkntc_collab_get_category_settings', [$this, 'ajax_get_category_settings']);
+    }
+    
+    public function ajax_get_staff_list() {
+        bkntc_cs_log('ajax_get_staff_list called - Direct registration');
+        
+        check_ajax_referer('bkntc_collab_category_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            bkntc_cs_log('ajax_get_staff_list - Permission denied');
+            wp_send_json_error(['message' => 'Permission denied']);
+        }
+
+        global $wpdb;
+
+        $table_name = $wpdb->prefix . 'bkntc_staff';
+        
+        bkntc_cs_log('Querying table: ' . $table_name);
+
+        $staff = $wpdb->get_results(
+            "SELECT id, name FROM {$table_name} WHERE is_active = 1 ORDER BY name ASC",
+            ARRAY_A
+        );
+        
+        if ($wpdb->last_error) {
+            bkntc_cs_log('Database error: ' . $wpdb->last_error);
+            wp_send_json_error(['message' => 'Database error: ' . $wpdb->last_error]);
+            return;
+        }
+        
+        bkntc_cs_log('ajax_get_staff_list - Found ' . count($staff) . ' staff members');
+
+        wp_send_json_success($staff);
+    }
+    
+    public function ajax_save_category_settings() {
+        check_ajax_referer('bkntc_collab_category_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Permission denied']);
+        }
+
+        $category_id = isset($_POST['category_id']) ? intval($_POST['category_id']) : 0;
+        $min_staff = isset($_POST['min_staff']) ? intval($_POST['min_staff']) : 0;
+        $max_staff = isset($_POST['max_staff']) ? intval($_POST['max_staff']) : 0;
+        $eligible_staff = isset($_POST['eligible_staff']) ? array_map('intval', (array)$_POST['eligible_staff']) : [];
+
+        if ($category_id <= 0) {
+            wp_send_json_error(['message' => 'Invalid category ID']);
+        }
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'bkntc_service_categories';
+        
+        // Save to database table
+        $result = $wpdb->update(
+            $table,
+            [
+                'collab_min_staff' => $min_staff,
+                'collab_max_staff' => $max_staff,
+                'collab_eligible_staff' => json_encode($eligible_staff)
+            ],
+            ['id' => $category_id],
+            ['%d', '%d', '%s'],
+            ['%d']
+        );
+        
+        if ($result !== false) {
+            bkntc_cs_log('Saved collaborative settings for category ' . $category_id . ': min=' . $min_staff . ', max=' . $max_staff . ', staff=' . json_encode($eligible_staff));
+            wp_send_json_success(['message' => 'Settings saved successfully']);
+        } else {
+            bkntc_cs_log('Failed to save collaborative settings for category ' . $category_id . ': ' . $wpdb->last_error);
+            wp_send_json_error(['message' => 'Database error: ' . $wpdb->last_error]);
+        }
+    }
+    
+    public function ajax_get_category_settings() {
+        check_ajax_referer('bkntc_collab_category_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Permission denied']);
+        }
+
+        $category_id = isset($_POST['category_id']) ? intval($_POST['category_id']) : 0;
+
+        if ($category_id <= 0) {
+            wp_send_json_success([
+                'min_staff' => 0,
+                'max_staff' => 0,
+                'eligible_staff' => []
+            ]);
+            return;
+        }
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'bkntc_service_categories';
+        
+        $category = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT collab_min_staff, collab_max_staff, collab_eligible_staff FROM {$table} WHERE id = %d",
+                $category_id
+            ),
+            ARRAY_A
+        );
+        
+        if ($category) {
+            $settings = [
+                'min_staff' => intval($category['collab_min_staff']),
+                'max_staff' => intval($category['collab_max_staff']),
+                'eligible_staff' => $category['collab_eligible_staff'] ? json_decode($category['collab_eligible_staff'], true) : []
+            ];
+        } else {
+            $settings = [
+                'min_staff' => 0,
+                'max_staff' => 0,
+                'eligible_staff' => []
+            ];
+        }
+
+        bkntc_cs_log('Retrieved collaborative settings for category ' . $category_id . ': ' . json_encode($settings));
+
+        wp_send_json_success($settings);
+    }
+    
+    public function init_service_category_collaborative() {
+        if (function_exists('bkntc_cs_log')) {
+            bkntc_cs_log('init_service_category_collaborative called');
+        }
+        
+        $collaborative_file = BKNTCCS_PLUGIN_DIR . 'app/Backend/ServiceCategory/ServiceCategoryCollaborative.php';
+        if (file_exists($collaborative_file)) {
+            if (function_exists('bkntc_cs_log')) {
+                bkntc_cs_log('Loading ServiceCategoryCollaborative from: ' . $collaborative_file);
+            }
+            require_once $collaborative_file;
+            new \BookneticApp\Backend\ServiceCategory\ServiceCategoryCollaborative();
+            if (function_exists('bkntc_cs_log')) {
+                bkntc_cs_log('ServiceCategoryCollaborative instantiated successfully');
+            }
+        } else {
+            if (function_exists('bkntc_cs_log')) {
+                bkntc_cs_log('ServiceCategoryCollaborative file not found: ' . $collaborative_file);
+            }
+        }
+    }
+    
+    public function enqueue_service_category_assets($hook) {
+        // Only load on Booknetic service categories page
+        if (!isset($_GET['page']) || $_GET['page'] !== 'booknetic') {
+            return;
+        }
+        
+        if (!isset($_GET['module']) || $_GET['module'] !== 'service_categories') {
+            return;
+        }
+        
+        // Debug logging
+        if (function_exists('bkntc_cs_log')) {
+            bkntc_cs_log('enqueue_service_category_assets: Enqueueing assets for service_categories');
+        }
+        
+        $css_file = BKNTCCS_PLUGIN_URL . 'assets/css/service-category-collaborative.css';
+        $js_file = BKNTCCS_PLUGIN_URL . 'assets/js/service-category-collaborative.js';
+        
+        if (function_exists('bkntc_cs_log')) {
+            bkntc_cs_log('CSS URL: ' . $css_file);
+            bkntc_cs_log('JS URL: ' . $js_file);
+        }
+        
+        wp_enqueue_style(
+            'bkntc-collab-category-css',
+            $css_file,
+            [],
+            '1.0.1'
+        );
+        
+        wp_enqueue_script(
+            'bkntc-collab-category-js',
+            $js_file,
+            ['jquery'],
+            '1.0.1',
+            true
+        );
+        
+        wp_localize_script('bkntc-collab-category-js', 'bkntcCollabCategory', [
+            'nonce' => wp_create_nonce('bkntc_collab_category_nonce'),
+            'ajaxurl' => admin_url('admin-ajax.php')
+        ]);
+        
+        // Add inline script to verify loading
+        wp_add_inline_script('bkntc-collab-category-js', 
+            'console.log("Collaborative Category Script Enqueued - Version 1.0.1");',
+            'before'
+        );
+    }
+    
+    public function inject_service_category_scripts() {
+        if (function_exists('bkntc_cs_log')) {
+            bkntc_cs_log('inject_service_category_scripts: Called - page=' . (isset($_GET['page']) ? $_GET['page'] : 'none') . ' module=' . (isset($_GET['module']) ? $_GET['module'] : 'none'));
+        }
+        
+        // Only load on Booknetic service categories page
+        if (!isset($_GET['page']) || $_GET['page'] !== 'booknetic') {
+            return;
+        }
+        
+        if (!isset($_GET['module']) || $_GET['module'] !== 'service_categories') {
+            return;
+        }
+        
+        if (function_exists('bkntc_cs_log')) {
+            bkntc_cs_log('inject_service_category_scripts: Injecting scripts in footer');
+        }
+        
+        $js_file = BKNTCCS_PLUGIN_URL . 'assets/js/service-category-collaborative.js';
+        $css_file = BKNTCCS_PLUGIN_URL . 'assets/css/service-category-collaborative.css';
+        
+        if (function_exists('bkntc_cs_log')) {
+            bkntc_cs_log('JS File URL: ' . $js_file);
+            bkntc_cs_log('CSS File URL: ' . $css_file);
+        }
+        
+        // Prevent multiple injections
+        static $injected = false;
+        if ($injected) {
+            if (function_exists('bkntc_cs_log')) {
+                bkntc_cs_log('inject_service_category_scripts: Already injected, skipping');
+            }
+            return;
+        }
+        $injected = true;
+        
+        ?>
+        <!-- Collaborative Category Scripts -->
+        <link rel="stylesheet" href="<?php echo esc_url($css_file); ?>?v=<?php echo time(); ?>">
+        <script type="text/javascript">
+            console.log('=== Collaborative Category Script Loading ===');
+            var bkntcCollabCategory = {
+                nonce: '<?php echo wp_create_nonce('bkntc_collab_category_nonce'); ?>',
+                ajaxurl: '<?php echo admin_url('admin-ajax.php'); ?>'
+            };
+            console.log('bkntcCollabCategory config:', bkntcCollabCategory);
+        </script>
+        <script type="text/javascript" src="<?php echo esc_url($js_file); ?>?v=<?php echo time(); ?>"></script>
+        <!-- End Collaborative Category Scripts -->
+        <?php
     }
 
     public function maybe_override_booknetic_view()
@@ -106,18 +363,20 @@ final class BookneticCollaborativeServices {
 
         $action = isset($_POST['action']) ? $_POST['action'] : (isset($_GET['action']) ? $_GET['action'] : '');
         
-        if (function_exists('bkntc_cs_log')) {
-            bkntc_cs_log('maybe_handle_booknetic_ajax: action=' . $action . ' | POST: ' . json_encode($_POST));
+        // Only intercept our specific collaborative_services actions - be very strict
+        if ($action !== 'collaborative_services' && 
+            $action !== 'settings.collaborative_services' && 
+            $action !== 'collaborative_services.save' && 
+            $action !== 'settings.collaborative_services.save') {
+            return; // Not our action, let Booknetic handle it
         }
-        
-        // Intercept if this is our action OR if our fields are present (Booknetic core might post with generic 'save')
-        $has_our_fields = isset($_POST['collaborative_enabled']) || isset($_POST['guest_info_required']);
-        if (strpos($action, 'collaborative_services') === false && !$has_our_fields) return;
 
-        if (function_exists('bkntc_cs_log')) bkntc_cs_log('maybe_handle_booknetic_ajax: intercepted AJAX for action=' . $action);
+        if (function_exists('bkntc_cs_log')) {
+            bkntc_cs_log('maybe_handle_booknetic_ajax: intercepted action=' . $action . ' | POST: ' . json_encode($_POST));
+        }
 
         // Handle save action
-        if ($action === 'collaborative_services.save' || $action === 'settings.collaborative_services.save' || $action === 'save' || $has_our_fields) {
+        if ($action === 'collaborative_services.save' || $action === 'settings.collaborative_services.save') {
             
             // Check permissions
             if (!current_user_can('manage_options')) {
@@ -173,6 +432,30 @@ final class BookneticCollaborativeServices {
 
         if (function_exists('bkntc_cs_log')) {
             bkntc_cs_log('log_request_params: REQUEST_URI=' . $req . ' METHOD=' . $method . ' action=' . $action . ' ajax=' . $ajax . ' GET=' . print_r($_GET, true));
+        }
+        
+        // Direct output for service_categories module - bypass WordPress hooks
+        if (isset($_GET['module']) && $_GET['module'] === 'service_categories' && !isset($_GET['ajax'])) {
+            $js_file = BKNTCCS_PLUGIN_URL . 'assets/js/service-category-collaborative.js';
+            $css_file = BKNTCCS_PLUGIN_URL . 'assets/css/service-category-collaborative.css';
+            
+            if (function_exists('bkntc_cs_log')) {
+                bkntc_cs_log('Direct output collaborative scripts for service_categories');
+            }
+            
+            // Output directly to the page
+            echo '<!-- Collaborative Category Scripts via Direct Output -->';
+            echo '<link rel="stylesheet" href="' . esc_url($css_file) . '?v=' . time() . '">';
+            echo '<script type="text/javascript">';
+            echo 'console.log("=== Collaborative Category Script Loading (Direct) ===");';
+            echo 'var bkntcCollabCategory = {';
+            echo '  nonce: "' . wp_create_nonce('bkntc_collab_category_nonce') . '",';
+            echo '  ajaxurl: "' . admin_url('admin-ajax.php') . '"';
+            echo '};';
+            echo 'console.log("bkntcCollabCategory config:", bkntcCollabCategory);';
+            echo '</script>';
+            echo '<script type="text/javascript" src="' . esc_url($js_file) . '?v=' . time() . '"></script>';
+            echo '<!-- End Collaborative Category Scripts -->';
         }
     }
 
@@ -265,6 +548,24 @@ final class BookneticCollaborativeServices {
     public static function activate() {
         // Create required folders
         wp_mkdir_p(BKNTCCS_PLUGIN_DIR . 'app/Backend/CollaborativeServices/view/');
+        
+        // Add columns to service categories table
+        global $wpdb;
+        $table = $wpdb->prefix . 'bkntc_service_categories';
+        
+        // Check if columns exist
+        $columns = $wpdb->get_results("SHOW COLUMNS FROM {$table} LIKE 'collab_%'");
+        
+        if (empty($columns)) {
+            $wpdb->query("ALTER TABLE {$table} 
+                ADD COLUMN collab_min_staff INT(11) DEFAULT 0,
+                ADD COLUMN collab_max_staff INT(11) DEFAULT 0,
+                ADD COLUMN collab_eligible_staff TEXT");
+            
+            if (function_exists('bkntc_cs_log')) {
+                bkntc_cs_log('Added collaborative columns to service categories table');
+            }
+        }
     }
 }
 

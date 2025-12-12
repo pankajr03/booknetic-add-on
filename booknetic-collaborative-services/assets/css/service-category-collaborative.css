@@ -1,37 +1,71 @@
-/**
- * Service Category Collaborative Fields Styling
- */
+/* Collaborative Service Category Styling */
 
-.collab-fields-section {
+.bkntc-collab-section {
+    margin-top: 25px;
+    padding: 20px;
     background: #f8f9fa;
-    padding: 15px;
-    border-radius: 5px;
-    margin-top: 10px;
+    border-radius: 6px;
+    border-left: 4px solid #7c3aed;
 }
 
-.collab-fields-section h5 {
+.bkntc-collab-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #e0e0e0;
+}
+
+.bkntc-collab-header h5 {
+    margin: 0;
+    color: #333;
+    font-size: 16px;
     font-weight: 600;
-    margin-bottom: 15px;
 }
 
-.collab-fields-section .form-group {
-    margin-bottom: 15px;
+.bkntc-collab-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    background: #7c3aed;
+    color: #fff;
+    font-size: 11px;
+    font-weight: bold;
+    border-radius: 4px;
+    letter-spacing: 0.5px;
 }
 
-#collab_staff_ids {
-    font-size: 14px;
+#bkntc_collab_fields .form-group label {
+    font-weight: 600;
+    color: #555;
+    font-size: 13px;
 }
 
-#collab_staff_ids option {
-    padding: 8px;
-    cursor: pointer;
+#bkntc_collab_fields .form-control {
+    border: 1px solid #ddd;
+    border-radius: 4px;
 }
 
-#collab_staff_ids option:hover {
-    background-color: #e9ecef;
+#bkntc_collab_fields .form-control:focus {
+    border-color: #7c3aed;
+    box-shadow: 0 0 0 0.2rem rgba(124, 58, 237, 0.15);
 }
 
-#collab_min_staff,
-#collab_max_staff {
-    max-width: 200px;
+#bkntc_collab_fields .form-text {
+    font-size: 12px;
+    color: #6c757d;
+    margin-top: 4px;
+}
+
+/* Category list badge */
+.category-collab-indicator {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 2px 8px;
+    background: #7c3aed;
+    color: #fff;
+    font-size: 10px;
+    font-weight: bold;
+    border-radius: 3px;
+    vertical-align: middle;
 }

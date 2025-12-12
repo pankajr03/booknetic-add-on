@@ -1,0 +1,37 @@
+/**
+ * Service Category Collaborative Fields Styling
+ */
+
+.collab-fields-section {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 5px;
+    margin-top: 10px;
+}
+
+.collab-fields-section h5 {
+    font-weight: 600;
+    margin-bottom: 15px;
+}
+
+.collab-fields-section .form-group {
+    margin-bottom: 15px;
+}
+
+#collab_staff_ids {
+    font-size: 14px;
+}
+
+#collab_staff_ids option {
+    padding: 8px;
+    cursor: pointer;
+}
+
+#collab_staff_ids option:hover {
+    background-color: #e9ecef;
+}
+
+#collab_min_staff,
+#collab_max_staff {
+    max-width: 200px;
+}

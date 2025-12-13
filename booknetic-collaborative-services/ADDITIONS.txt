@@ -1,0 +1,101 @@
+<?php
+// SECTION 1: Add to init() method after line 71 (after enqueue_appointment_assets)
+
+        // Frontend booking panel hooks
+        add_action('wp_enqueue_scripts', [$this, 'enqueue_frontend_booking_assets']);
+        add_action('wp_ajax_bkntc_collab_get_frontend_category_rules', [$this, 'ajax_get_frontend_category_rules']);
+        add_action('wp_ajax_nopriv_bkntc_collab_get_frontend_category_rules', [$this, 'ajax_get_frontend_category_rules']);
+
+// SECTION 2: Add new methods before add_wp_submenu() method (before line 642)
+
+    public function enqueue_frontend_booking_assets() {
+        // Only load on pages with Booknetic booking panel
+        // Check if we're on a page that might have the booking shortcode
+        global $post;
+        
+        if (is_a($post, 'WP_Post') && has_shortcode($post->post_content, 'booknetic')) {
+            
+            $js_file = BKNTCCS_PLUGIN_URL . 'assets/js/frontend-booking-collaborative.js';
+            
+            wp_enqueue_script(
+                'bkntc-collab-frontend-booking',
+                $js_file,
+                ['jquery'],
+                time(), // Use timestamp for development
+                true
+            );
+            
+            wp_localize_script('bkntc-collab-frontend-booking', 'BookneticCollabFrontend', [
+                'ajaxurl' => admin_url('admin-ajax.php'),
+                'nonce' => wp_create_nonce('bkntc_collab_frontend_nonce')
+            ]);
+            
+            if (function_exists('bkntc_cs_log')) {
+                bkntc_cs_log('Frontend booking assets enqueued');
+            }
+        }
+    }
+    
+    public function ajax_get_frontend_category_rules() {
+        // Allow both logged-in and non-logged-in users
+        if (!check_ajax_referer('bkntc_collab_frontend_nonce', 'nonce', false)) {
+            wp_send_json_error(['message' => 'Invalid nonce']);
+            return;
+        }
+        
+        $service_id = isset($_POST['service_id']) ? intval($_POST['service_id']) : 0;
+        
+        if (!$service_id) {
+            wp_send_json_error(['message' => 'Service ID required']);
+            return;
+        }
+        
+        global $wpdb;
+        
+        // Get service category
+        $service_table = $wpdb->prefix . 'bkntc_services';
+        $category_id = $wpdb->get_var($wpdb->prepare(
+            "SELECT category_id FROM {$service_table} WHERE id = %d",
+            $service_id
+        ));
+        
+        if (!$category_id) {
+            wp_send_json_success([
+                'min' => null,
+                'max' => null,
+                'message' => 'No category found for service'
+            ]);
+            return;
+        }
+        
+        // Get category rules from options
+        $rules_key = 'bkntc_cs_category_rules_' . $category_id;
+        $rules = get_option($rules_key, []);
+        
+        // Fallback: check database columns
+        if (empty($rules)) {
+            $categories_table = $wpdb->prefix . 'bkntc_service_categories';
+            $category_data = $wpdb->get_row($wpdb->prepare(
+                "SELECT collab_min_staff, collab_max_staff, collab_eligible_staff 
+                 FROM {$categories_table} WHERE id = %d",
+                $category_id
+            ), ARRAY_A);
+            
+            if ($category_data) {
+                $rules = [
+                    'min' => !empty($category_data['collab_min_staff']) ? intval($category_data['collab_min_staff']) : null,
+                    'max' => !empty($category_data['collab_max_staff']) ? intval($category_data['collab_max_staff']) : null,
+                    'eligible_staff' => !empty($category_data['collab_eligible_staff']) 
+                        ? json_decode($category_data['collab_eligible_staff'], true) 
+                        : []
+                ];
+            }
+        }
+        
+        wp_send_json_success([
+            'min' => isset($rules['min']) ? intval($rules['min']) : null,
+            'max' => isset($rules['max']) ? intval($rules['max']) : null,
+            'eligible_staff' => isset($rules['eligible_staff']) ? $rules['eligible_staff'] : [],
+            'category_id' => $category_id
+        ]);
+    }

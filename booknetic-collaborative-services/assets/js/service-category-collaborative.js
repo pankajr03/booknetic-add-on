@@ -159,6 +159,21 @@
                         </div>\
                         \
                         <div class="form-row">\
+                            <div class="form-group col-md-12">\
+                                <div class="form-check">\
+                                    <input type="checkbox" \
+                                           class="form-check-input" \
+                                           id="bkntc_collab_allow_multi_select" \
+                                           value="1">\
+                                    <label class="form-check-label" for="bkntc_collab_allow_multi_select">\
+                                        <strong>Enable Multiple Service Selection</strong>\
+                                    </label>\
+                                </div>\
+                                <small class="form-text text-muted">Allow customers to select multiple services from this category in one booking</small>\
+                            </div>\
+                        </div>\
+                        \
+                        <div class="form-row">\
                             <div class="form-group col-md-6">\
                                 <label for="bkntc_collab_min_staff">Minimum Staff</label>\
                                 <input type="number" \
@@ -240,12 +255,13 @@
                             var data = response.data;
                             console.log('Loading settings data:', data);
                             
+                            $('#bkntc_collab_allow_multi_select').prop('checked', data.allow_multi_select == 1);
                             $('#bkntc_collab_min_staff').val(data.min_staff || 0);
                             $('#bkntc_collab_max_staff').val(data.max_staff || 0);
                             
-                            if (data.eligible_staff && data.eligible_staff.length > 0) {
-                                console.log('Setting eligible staff:', data.eligible_staff);
-                                $('#bkntc_collab_staff_ids').val(data.eligible_staff);
+                            if (data.staff_ids && data.staff_ids.length > 0) {
+                                console.log('Setting eligible staff:', data.staff_ids);
+                                $('#bkntc_collab_staff_ids').val(data.staff_ids);
                             }
                         } else {
                             console.log('Failed to load category settings:', response);
@@ -271,11 +287,12 @@
             performSave: function(categoryId) {
                 console.log('performSave called with categoryId:', categoryId);
                 
+                var allowMultiSelect = $('#bkntc_collab_allow_multi_select').is(':checked') ? 1 : 0;
                 var minStaff = parseInt($('#bkntc_collab_min_staff').val()) || 0;
                 var maxStaff = parseInt($('#bkntc_collab_max_staff').val()) || 0;
                 var eligibleStaff = $('#bkntc_collab_staff_ids').val() || [];
 
-                console.log('Saving:', {categoryId: categoryId, minStaff: minStaff, maxStaff: maxStaff, eligibleStaff: eligibleStaff});
+                console.log('Saving:', {categoryId: categoryId, allowMultiSelect: allowMultiSelect, minStaff: minStaff, maxStaff: maxStaff, eligibleStaff: eligibleStaff});
 
                 // Validation
                 if (maxStaff > 0 && maxStaff < minStaff) {
@@ -292,9 +309,10 @@
                         action: 'bkntc_collab_save_category_settings',
                         nonce: bkntcCollabCategory.nonce,
                         category_id: categoryId,
+                        allow_multi_select: allowMultiSelect,
                         min_staff: minStaff,
                         max_staff: maxStaff,
-                        eligible_staff: eligibleStaff
+                        staff_ids: eligibleStaff
                     },
                     success: function(response) {
                         console.log('Save response:', response);

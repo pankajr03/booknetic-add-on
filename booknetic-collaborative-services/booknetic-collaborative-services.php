@@ -62,6 +62,13 @@ final class BookneticCollaborativeServices {
         add_action('wp_ajax_bkntc_collab_save_category_settings', [$this, 'ajax_save_category_settings']);
         add_action('wp_ajax_bkntc_collab_get_category_settings', [$this, 'ajax_get_category_settings']);
         
+        // Service Collaborative features
+        add_action('admin_enqueue_scripts', [$this, 'enqueue_service_assets']);
+        add_action('wp_ajax_bkntc_collab_get_service_settings', [$this, 'ajax_get_service_settings']);
+        
+        // Hook into Booknetic service save to persist collab fields
+        add_filter('bkntc_service_insert_data', [$this, 'filter_service_save_data'], 10, 1);
+        
         // Register Appointment AJAX handlers
         add_action('wp_ajax_bkntc_collab_get_appointment_staff', [$this, 'ajax_get_appointment_staff']);
         add_action('wp_ajax_bkntc_collab_save_appointment_staff', [$this, 'ajax_save_appointment_staff']);
@@ -670,6 +677,24 @@ final class BookneticCollaborativeServices {
                 time(), // Use timestamp for development
                 true
             );
+
+            // Enqueue step-based confirm handler to display all selected staff
+            wp_enqueue_script(
+                'bkntc-collab-confirm-step',
+                BKNTCCS_PLUGIN_URL . 'assets/js/steps/step_confirm_collaborative.js',
+                ['jquery'],
+                time(), // Use timestamp for development
+                true
+            );
+
+            // Enqueue step-based cart handler to display all selected staff in cart
+            wp_enqueue_script(
+                'bkntc-collab-cart-step',
+                BKNTCCS_PLUGIN_URL . 'assets/js/steps/step_cart_collaborative.js',
+                ['jquery'],
+                time(), // Use timestamp for development
+                true
+            );
             
             wp_localize_script('bkntc-collab-staff-step', 'BookneticCollabFrontend', [
                 'ajaxurl' => admin_url('admin-ajax.php'),
@@ -834,6 +859,63 @@ final class BookneticCollaborativeServices {
         if (function_exists('bkntc_cs_log')) bkntc_cs_log('add_menu_item: submenu collaborative_services added');
     }
 
+    // Service Collaborative handlers
+    public function enqueue_service_assets() {
+        $screen = get_current_screen();
+        
+        // Only load on Services page
+        if ($screen && strpos($screen->id, 'booknetic') !== false) {
+            wp_enqueue_script(
+                'bkntc-collab-service',
+                BKNTCCS_PLUGIN_URL . 'assets/js/service-collaborative.js',
+                ['jquery'],
+                time(),
+                true
+            );
+            
+            if (function_exists('bkntc_cs_log')) {
+                bkntc_cs_log('Service collaborative assets enqueued');
+            }
+        }
+    }
+    
+    public function ajax_get_service_settings() {
+        $service_id = isset($_POST['service_id']) ? intval($_POST['service_id']) : 0;
+        
+        if (!$service_id) {
+            wp_send_json_error(['message' => 'Invalid service ID']);
+        }
+        
+        global $wpdb;
+        $service = $wpdb->get_row($wpdb->prepare(
+            "SELECT collab_min_staff, collab_max_staff FROM {$wpdb->prefix}bkntc_services WHERE id = %d",
+            $service_id
+        ), ARRAY_A);
+        
+        if (!$service) {
+            wp_send_json_error(['message' => 'Service not found']);
+        }
+        
+        wp_send_json_success($service);
+    }
+    
+    public function filter_service_save_data($data) {
+        // Add collab_min_staff and collab_max_staff to insert data if present in POST
+        if (isset($_POST['collab_min_staff'])) {
+            $data['collab_min_staff'] = max(1, intval($_POST['collab_min_staff']));
+        }
+        
+        if (isset($_POST['collab_max_staff'])) {
+            $data['collab_max_staff'] = max(1, intval($_POST['collab_max_staff']));
+        }
+        
+        if (function_exists('bkntc_cs_log')) {
+            bkntc_cs_log('filter_service_save_data: ' . json_encode($data));
+        }
+        
+        return $data;
+    }
+
     public static function activate() {
         // Create required folders
         wp_mkdir_p(BKNTCCS_PLUGIN_DIR . 'app/Backend/CollaborativeServices/view/');
@@ -848,10 +930,31 @@ final class BookneticCollaborativeServices {
             $wpdb->query("ALTER TABLE {$categories_table} 
                 ADD COLUMN collab_min_staff INT(11) DEFAULT 0,
                 ADD COLUMN collab_max_staff INT(11) DEFAULT 0,
-                ADD COLUMN collab_eligible_staff TEXT");
+                ADD COLUMN collab_eligible_staff TEXT,
+                ADD COLUMN allow_multi_select TINYINT(1) DEFAULT 0");
             
             if (function_exists('bkntc_cs_log')) {
                 bkntc_cs_log('Added collaborative columns to service categories table');
+            }
+        }
+        
+        // Add allow_multi_select if missing
+        $multi_select_column = $wpdb->get_results("SHOW COLUMNS FROM {$categories_table} LIKE 'allow_multi_select'");
+        if (empty($multi_select_column)) {
+            $wpdb->query("ALTER TABLE {$categories_table} ADD COLUMN allow_multi_select TINYINT(1) DEFAULT 0");
+        }
+        
+        // Add columns to services table
+        $services_table = $wpdb->prefix . 'bkntc_services';
+        $service_columns = $wpdb->get_results("SHOW COLUMNS FROM {$services_table} LIKE 'collab_%'");
+        
+        if (empty($service_columns)) {
+            $wpdb->query("ALTER TABLE {$services_table} 
+                ADD COLUMN collab_min_staff INT(11) DEFAULT 1 AFTER category_id,
+                ADD COLUMN collab_max_staff INT(11) DEFAULT 1 AFTER collab_min_staff");
+            
+            if (function_exists('bkntc_cs_log')) {
+                bkntc_cs_log('Added collaborative columns to services table');
             }
         }
         
@@ -866,6 +969,27 @@ final class BookneticCollaborativeServices {
             if (function_exists('bkntc_cs_log')) {
                 bkntc_cs_log('Added collab_staff_ids column to appointments table');
             }
+        }
+        
+        // Create guests table
+        $guests_table = $wpdb->prefix . 'bkntc_appointment_guests';
+        $charset_collate = $wpdb->get_charset_collate();
+        
+        $sql = "CREATE TABLE IF NOT EXISTS {$guests_table} (
+            id INT(11) AUTO_INCREMENT PRIMARY KEY,
+            appointment_id INT(11) NOT NULL,
+            guest_name VARCHAR(255) DEFAULT NULL,
+            guest_email VARCHAR(255) DEFAULT NULL,
+            guest_phone VARCHAR(255) DEFAULT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_appointment_id (appointment_id)
+        ) {$charset_collate};";
+        
+        require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+        dbDelta($sql);
+        
+        if (function_exists('bkntc_cs_log')) {
+            bkntc_cs_log('Database tables created/updated');
         }
     }
 }

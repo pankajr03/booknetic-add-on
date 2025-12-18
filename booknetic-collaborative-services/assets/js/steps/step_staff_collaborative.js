@@ -95,6 +95,16 @@
         return result;
     });
 
+    // Hook to save selected staff array to cart instead of single staff ID
+    bookneticHooks.addFilter('bkntc_cart', function(cartItem, booknetic) {
+        if (collaborativeStaff.selectedStaff && collaborativeStaff.selectedStaff.length > 0) {
+            // Store all selected staff as an array
+            cartItem['collaborative_staff'] = collaborativeStaff.selectedStaff;
+            console.log('Saved to cart - collaborative_staff:', collaborativeStaff.selectedStaff);
+        }
+        return cartItem;
+    });
+
     // Helper: Fetch category rules via AJAX
     function fetchCategoryRules(service_id) {
         $.ajax({

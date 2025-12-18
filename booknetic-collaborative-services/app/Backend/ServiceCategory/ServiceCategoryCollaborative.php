@@ -34,11 +34,25 @@ class ServiceCategoryCollaborative
             wp_send_json_error(['message' => 'Invalid category ID']);
         }
 
-        $settings = get_option('bkntc_collab_category_' . $category_id, [
-            'min_staff' => 0,
-            'max_staff' => 0,
-            'staff_ids' => []
-        ]);
+        global $wpdb;
+        
+        // Get settings from database
+        $category = $wpdb->get_row($wpdb->prepare(
+            "SELECT collab_min_staff, collab_max_staff, collab_eligible_staff, allow_multi_select 
+             FROM {$wpdb->prefix}bkntc_service_categories WHERE id = %d",
+            $category_id
+        ), ARRAY_A);
+
+        if (!$category) {
+            wp_send_json_error(['message' => 'Category not found']);
+        }
+
+        $settings = [
+            'min_staff' => !empty($category['collab_min_staff']) ? intval($category['collab_min_staff']) : 0,
+            'max_staff' => !empty($category['collab_max_staff']) ? intval($category['collab_max_staff']) : 0,
+            'staff_ids' => !empty($category['collab_eligible_staff']) ? json_decode($category['collab_eligible_staff'], true) : [],
+            'allow_multi_select' => !empty($category['allow_multi_select']) ? intval($category['allow_multi_select']) : 0
+        ];
 
         wp_send_json_success($settings);
     }
@@ -58,6 +72,7 @@ class ServiceCategoryCollaborative
         $min_staff = isset($_POST['min_staff']) ? intval($_POST['min_staff']) : 0;
         $max_staff = isset($_POST['max_staff']) ? intval($_POST['max_staff']) : 0;
         $staff_ids = isset($_POST['staff_ids']) ? array_map('intval', (array)$_POST['staff_ids']) : [];
+        $allow_multi_select = isset($_POST['allow_multi_select']) ? intval($_POST['allow_multi_select']) : 0;
 
         if (!$category_id) {
             wp_send_json_error(['message' => 'Invalid category ID']);
@@ -68,13 +83,32 @@ class ServiceCategoryCollaborative
             wp_send_json_error(['message' => 'Maximum staff cannot be less than minimum staff']);
         }
 
+        global $wpdb;
+        
+        // Update database columns
+        $result = $wpdb->update(
+            $wpdb->prefix . 'bkntc_service_categories',
+            [
+                'collab_min_staff' => max(0, $min_staff),
+                'collab_max_staff' => max(0, $max_staff),
+                'collab_eligible_staff' => json_encode($staff_ids),
+                'allow_multi_select' => $allow_multi_select
+            ],
+            ['id' => $category_id],
+            ['%d', '%d', '%s', '%d'],
+            ['%d']
+        );
+
+        if ($result === false) {
+            wp_send_json_error(['message' => 'Failed to save settings']);
+        }
+
         $settings = [
             'min_staff' => max(0, $min_staff),
             'max_staff' => max(0, $max_staff),
-            'staff_ids' => $staff_ids
+            'staff_ids' => $staff_ids,
+            'allow_multi_select' => $allow_multi_select
         ];
-
-        update_option('bkntc_collab_category_' . $category_id, $settings);
 
         if (function_exists('bkntc_cs_log')) {
             bkntc_cs_log('ServiceCategoryCollaborative::save_category_settings - Category ' . $category_id . ': ' . json_encode($settings));

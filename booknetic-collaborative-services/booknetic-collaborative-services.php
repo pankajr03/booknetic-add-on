@@ -86,8 +86,16 @@ final class BookneticCollaborativeServices {
         add_action('wp_ajax_bkntc_collab_get_service_category', [$this, 'ajax_get_service_category']);
         add_action('wp_ajax_nopriv_bkntc_collab_get_service_category', [$this, 'ajax_get_service_category']);
         
+        // AJAX handler for getting available staff for datetime
+        add_action('wp_ajax_bkntc_collab_get_available_staff', [$this, 'ajax_get_available_staff']);
+        add_action('wp_ajax_nopriv_bkntc_collab_get_available_staff', [$this, 'ajax_get_available_staff']);
+        
         // Modify staff step rendering
         add_filter('bkntc_booking_panel_render_staff_info', [$this, 'modify_staff_step_output'], 10, 1);
+        
+        // Register custom combined DateTime-Staff step
+        // Enqueue admin script for step injection
+        add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_booking_steps_script']);
     }
     
     public function ajax_get_staff_list() {
@@ -720,11 +728,20 @@ final class BookneticCollaborativeServices {
                 true
             );
             
+            // Enqueue combined datetime-staff step handler
+            wp_enqueue_script(
+                'bkntc-collab-datetime-staff-step',
+                BKNTCCS_PLUGIN_URL . 'assets/js/steps/step_datetime_staff_collaborative.js',
+                ['jquery', 'bkntc-collab-service-step'],
+                time(), // Use timestamp for development
+                true
+            );
+            
             // Enqueue step-based staff handler (follows Booknetic pattern)
             wp_enqueue_script(
                 'bkntc-collab-staff-step',
                 BKNTCCS_PLUGIN_URL . 'assets/js/steps/step_staff_collaborative.js',
-                ['jquery', 'bkntc-collab-service-step'],
+                ['jquery', 'bkntc-collab-datetime-staff-step'],
                 time(), // Use timestamp for development
                 true
             );
@@ -878,6 +895,61 @@ final class BookneticCollaborativeServices {
                 'category_id' => $category_id
             ]);
         }
+    }
+    
+    public function ajax_get_available_staff() {
+        // Allow both logged-in and non-logged-in users
+        if (!check_ajax_referer('bkntc_collab_frontend_nonce', 'nonce', false)) {
+            wp_send_json_error(['message' => 'Invalid nonce']);
+            return;
+        }
+        
+        $service_id = isset($_POST['service_id']) ? intval($_POST['service_id']) : 0;
+        $date = isset($_POST['date']) ? sanitize_text_field($_POST['date']) : '';
+        $time = isset($_POST['time']) ? sanitize_text_field($_POST['time']) : '';
+        
+        if (!$service_id || !$date || !$time) {
+            wp_send_json_error(['message' => 'Service ID, date, and time required']);
+            return;
+        }
+        
+        global $wpdb;
+        
+        $staff_table = $wpdb->prefix . 'bkntc_staff';
+        $staff_services_table = $wpdb->prefix . 'bkntc_staff_services';
+        
+        // Check if staff_services table exists
+        $table_exists = $wpdb->get_var("SHOW TABLES LIKE '{$staff_services_table}'") === $staff_services_table;
+        
+        if ($table_exists) {
+            // Use the relationship table if it exists
+            $staff = $wpdb->get_results($wpdb->prepare(
+                "SELECT DISTINCT s.id, s.name, s.email, s.profile_image
+                 FROM {$staff_table} s
+                 INNER JOIN {$staff_services_table} ss ON s.id = ss.staff_id
+                 WHERE s.is_active = 1 AND ss.service_id = %d
+                 ORDER BY s.name ASC",
+                $service_id
+            ), ARRAY_A);
+        } else {
+            // Fallback: get all active staff (table doesn't exist)
+            $staff = $wpdb->get_results(
+                "SELECT id, name, email, profile_image
+                 FROM {$staff_table}
+                 WHERE is_active = 1
+                 ORDER BY name ASC",
+                ARRAY_A
+            );
+        }
+        
+        // TODO: In a real implementation, we would check availability against the timesheet and appointments
+        
+        wp_send_json_success([
+            'staff' => $staff,
+            'service_id' => $service_id,
+            'date' => $date,
+            'time' => $time
+        ]);
     }
     
     public function ajax_get_service_category() {
@@ -1133,6 +1205,24 @@ final class BookneticCollaborativeServices {
         if (function_exists('bkntc_cs_log')) {
             bkntc_cs_log('Database tables created/updated');
         }
+    }
+    
+    /**
+     * Enqueue admin script for booking steps injection
+     */
+    public function enqueue_admin_booking_steps_script($hook) {
+        // Only on Booknetic admin pages
+        if (!isset($_GET['page']) || $_GET['page'] !== 'booknetic') {
+            return;
+        }
+        
+        wp_enqueue_script(
+            'booknetic-collab-admin-steps',
+            plugin_dir_url(__FILE__) . 'assets/js/admin-booking-steps.js',
+            ['jquery'],
+            '1.0.0',
+            true
+        );
     }
 }
 

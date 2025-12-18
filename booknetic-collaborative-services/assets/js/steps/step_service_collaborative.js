@@ -10,6 +10,9 @@
         selectedServices: [], // Array of {service_id, assigned_to}
         isMultiSelectMode: false
     };
+    
+    // Make it globally accessible for other steps
+    window.collaborativeService = collaborativeService;
 
     // Hook after booking panel loads
     bookneticHooks.addAction('booking_panel_loaded', function(booknetic) {
@@ -51,9 +54,16 @@
 
         // Get selected services with assignments
         var selectedServices = [];
-        booking_panel_js.find('.booknetic_collab_service_checkbox input:checked').each(function() {
+        var checkedBoxes = booking_panel_js.find('.booknetic_collab_service_checkbox input:checked');
+        
+        console.log('Found checked boxes:', checkedBoxes.length);
+        
+        checkedBoxes.each(function() {
             var serviceId = parseInt($(this).data('service-id'));
-            var assignedTo = $(this).closest('.booknetic_card').find('input[name="assign_to_' + serviceId + '"]:checked').val();
+            var card = $(this).closest('.booknetic_service_card');
+            var assignedTo = card.find('input[name="assign_to_' + serviceId + '"]:checked').val();
+            
+            console.log('Service ID:', serviceId, 'Assigned to:', assignedTo);
             
             if (!assignedTo) {
                 assignedTo = 'me'; // Default to "me"
@@ -87,7 +97,12 @@
 
         // Store selected services for cart
         collaborativeService.selectedServices = selectedServices;
+        
+        // Also store in panel data for access by other steps
+        booking_panel_js.data('collaborative-selected-services', selectedServices);
+        
         console.log('Service validation passed:', selectedServices);
+        console.log('Stored in window.collaborativeService and panel data');
 
         return {
             status: true,
@@ -113,11 +128,16 @@
     function checkCategoryMultiSelect(booknetic) {
         let booking_panel_js = booknetic.panel_js;
         
+        console.log('=== SERVICE COLLABORATIVE: CHECK MULTI-SELECT ===');
+        console.log('BookneticCollabFrontend available:', typeof BookneticCollabFrontend !== 'undefined');
+        
         // Get the category ID from the step
         var categoryId = getCurrentCategoryId(booking_panel_js);
         
+        console.log('Category ID:', categoryId);
+        
         if (!categoryId) {
-            console.log('Service Collaborative: No category ID found');
+            console.log('Service Collaborative: No category ID found, skipping multi-select check');
             return;
         }
 
@@ -132,23 +152,35 @@
                 category_id: categoryId
             },
             success: function(response) {
-                console.log('Service Collaborative: Category settings response:', response);
+                console.log('=== CATEGORY SETTINGS RESPONSE ===');
+                console.log('Full response:', response);
+                console.log('Response.success:', response.success);
+                console.log('Response.data:', response.data);
                 
                 if (response.success && response.data) {
                     collaborativeService.categorySettings = response.data;
+                    console.log('allow_multi_select value:', response.data.allow_multi_select);
+                    console.log('allow_multi_select == 1:', response.data.allow_multi_select == 1);
                     
                     if (response.data.allow_multi_select == 1) {
-                        console.log('Service Collaborative: Multi-select enabled for category');
+                        console.log('✓ Service Collaborative: Multi-select ENABLED for category', categoryId);
                         collaborativeService.isMultiSelectMode = true;
+                        console.log('About to convert to multi-select...');
                         convertServiceToMultiSelect(booknetic);
+                        console.log('Conversion complete');
                     } else {
-                        console.log('Service Collaborative: Single-select mode for category');
+                        console.log('✗ Service Collaborative: Single-select mode (allow_multi_select =', response.data.allow_multi_select, ')');
                         collaborativeService.isMultiSelectMode = false;
                     }
+                } else {
+                    console.error('Invalid response structure:', response);
                 }
             },
             error: function(xhr, status, error) {
-                console.log('Service Collaborative: Error fetching category settings:', error);
+                console.error('=== AJAX ERROR ===');
+                console.error('Status:', status);
+                console.error('Error:', error);
+                console.error('Response text:', xhr.responseText);
             }
         });
     }

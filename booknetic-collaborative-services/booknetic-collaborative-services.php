@@ -90,6 +90,10 @@ final class BookneticCollaborativeServices {
         add_action('wp_ajax_bkntc_collab_get_available_staff', [$this, 'ajax_get_available_staff']);
         add_action('wp_ajax_nopriv_bkntc_collab_get_available_staff', [$this, 'ajax_get_available_staff']);
         
+        // AJAX handler for loading combined datetime-staff step
+        add_action('wp_ajax_bkntc_collab_load_combined_step', [$this, 'ajax_load_combined_step']);
+        add_action('wp_ajax_nopriv_bkntc_collab_load_combined_step', [$this, 'ajax_load_combined_step']);
+        
         // Modify staff step rendering
         add_filter('bkntc_booking_panel_render_staff_info', [$this, 'modify_staff_step_output'], 10, 1);
         
@@ -728,11 +732,21 @@ final class BookneticCollaborativeServices {
                 true
             );
             
-            // Enqueue combined datetime-staff step handler
+            // NEW: Enqueue COMBINED datetime-staff step handler (single unified step)
+            // This intercepts date_time step and converts it to combined view in multi-service mode
+            wp_enqueue_script(
+                'bkntc-collab-combined-step',
+                BKNTCCS_PLUGIN_URL . 'assets/js/steps/step_date_time_staff_combined.js',
+                ['jquery', 'bkntc-collab-service-step'],
+                time(), // Use timestamp for development
+                true
+            );
+            
+            // LEGACY: Old datetime-staff handler (kept for compatibility, but combined step takes priority)
             wp_enqueue_script(
                 'bkntc-collab-datetime-staff-step',
                 BKNTCCS_PLUGIN_URL . 'assets/js/steps/step_datetime_staff_collaborative.js',
-                ['jquery', 'bkntc-collab-service-step'],
+                ['jquery', 'bkntc-collab-combined-step'],
                 time(), // Use timestamp for development
                 true
             );
@@ -949,6 +963,53 @@ final class BookneticCollaborativeServices {
             'service_id' => $service_id,
             'date' => $date,
             'time' => $time
+        ]);
+    }
+    
+    public function ajax_load_combined_step() {
+        // Allow both logged-in and non-logged-in users
+        if (!check_ajax_referer('bkntc_collab_frontend_nonce', 'nonce', false)) {
+            wp_send_json_error(['message' => 'Invalid nonce']);
+            return;
+        }
+        
+        $step = isset($_POST['step']) ? sanitize_text_field($_POST['step']) : 'date_time';
+        $selected_services_json = isset($_POST['selected_services']) ? $_POST['selected_services'] : '[]';
+        $selected_services = json_decode(stripslashes($selected_services_json), true);
+        
+        if (!is_array($selected_services) || count($selected_services) < 2) {
+            wp_send_json_error(['message' => 'Multiple services required for combined step']);
+            return;
+        }
+        
+        // Build HTML for combined step
+        ob_start();
+        ?>
+        <div class="booknetic_appointment_step_body">
+            <div class="booknetic_appointment_step_element" data-step-id="date_time">
+                <div class="booknetic_calendar_div">
+                    <!-- Calendar will be rendered here by Booknetic's standard calendar code -->
+                    <div class="booknetic_calendar" id="booknetic_calendar"></div>
+                </div>
+                <div class="booknetic_time_div">
+                    <div class="booknetic_times_title"></div>
+                    <div class="booknetic_times_list"></div>
+                </div>
+            </div>
+        </div>
+        <?php
+        $html = ob_get_clean();
+        
+        // Get calendar data (simplified - in real implementation, this would come from Booknetic's calendar logic)
+        $calendar_data = [
+            'dates' => [],
+            'hide_available_slots' => 'off'
+        ];
+        
+        wp_send_json_success([
+            'html' => $html,
+            'calendar_data' => $calendar_data,
+            'services' => $selected_services
         ]);
     }
     

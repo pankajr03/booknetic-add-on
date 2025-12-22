@@ -12,78 +12,30 @@
         currentView: 'date' // 'date' or 'staff'
     };
 
-    // === STEP 5: NAVIGATION LOGIC ===
-    // Control step flow based on multi-service mode
-    
-    // Hook to control which step comes after datetime
-    bookneticHooks.addFilter('next_step_after_date_time', function(next_step, booknetic) {
-        console.log('Navigation: Determining next step after date_time. Current next:', next_step);
-        console.log('Multi-service mode:', collaborativeDateTimeStaff.isMultiServiceMode);
-        
-        if (collaborativeDateTimeStaff.isMultiServiceMode) {
-            // In multi-service mode, skip the separate staff step since we already selected staff
-            // Go directly to information or next applicable step
-            if (next_step === 'staff') {
-                console.log('Navigation: Skipping staff step in multi-service mode');
-                return booknetic.stepManager.getNextStepAfter('staff'); // Get the step after staff
-            }
-        }
-        
-        return next_step;
-    });
-    
-    // Hook to hide/show staff step based on mode
-    bookneticHooks.addFilter('step_is_visible_staff', function(is_visible, booknetic) {
-        if (collaborativeDateTimeStaff.isMultiServiceMode) {
-            console.log('Navigation: Hiding staff step (already selected in combined view)');
-            return false; // Hide staff step in multi-service mode
-        }
-        return is_visible; // Show normally in single-service mode
-    });
-    
-    // Update sidebar step visibility when mode changes
-    function updateStepVisibility(booknetic) {
-        var panel = booknetic.panel_js;
-        
-        if (collaborativeDateTimeStaff.isMultiServiceMode) {
-            // Hide staff step in sidebar
-            panel.find('.booknetic_appointment_step_element[data-step="staff"]').addClass('booknetic_hidden');
-            console.log('Navigation: Staff step hidden in sidebar');
-        } else {
-            // Show staff step in sidebar (normal mode)
-            panel.find('.booknetic_appointment_step_element[data-step="staff"]').removeClass('booknetic_hidden');
-            console.log('Navigation: Staff step shown in sidebar');
-        }
-    }
-    
-    // Hook before any step loads to control visibility
-    bookneticHooks.addAction('before_step_loading', function(booknetic, new_step_id, old_step_id) {
-        // If trying to load staff step in multi-service mode, skip it
-        if (new_step_id === 'staff' && collaborativeDateTimeStaff.isMultiServiceMode) {
-            console.log('Navigation: Intercepting staff step load, redirecting to next step');
-            var nextStep = booknetic.stepManager.getNextStepAfter('staff');
-            if (nextStep) {
-                setTimeout(function() {
-                    booknetic.goForward();
-                }, 100);
-            }
-        }
-    }, 5); // High priority to run early
-
-    // Hook before datetime step loads
+    // Hook before any step loads - handle navigation logic
     bookneticHooks.addAction('before_step_loading', function(booknetic, new_step_id, old_step_id) {
         var isDateTimeStep = (new_step_id === 'date_time' || 
                               new_step_id === 'date_time_recurring' || 
                               new_step_id === 'date_time_non_recurring' ||
                               new_step_id === 'date_time_staff_combined');
         
-        var isLeavingDateTimeStep = old_step_id && (old_step_id === 'date_time' || old_step_id === 'date_time_recurring' || old_step_id === 'date_time_non_recurring');
+        var isStaffStep = (new_step_id === 'staff');
         
-        // Completely remove hint and staff section when leaving datetime step (but not when navigating between datetime variations)
-        if (isLeavingDateTimeStep && !isDateTimeStep) {
-            console.log('Navigation: Leaving datetime step, cleaning up collaborative elements');
-            $('.booknetic_collab_datetime_hint').remove();
-            $('.booknetic_collab_staff_section').remove();
+        // Hide hint when leaving datetime step
+        if (old_step_id && (old_step_id === 'date_time' || old_step_id === 'date_time_recurring' || old_step_id === 'date_time_non_recurring')) {
+            $('.booknetic_collab_datetime_hint').hide();
+            $('.booknetic_collab_staff_section').hide();
+        }
+        
+        // STEP 5: Skip staff step if in multi-service mode (already handled in combined step)
+        if (isStaffStep && collaborativeDateTimeStaff.isMultiServiceMode) {
+            console.log('=== STEP 5: Skipping separate staff step (already handled in combined datetime-staff) ===');
+            
+            // Automatically move to next step
+            setTimeout(function() {
+                booknetic.moveNextStep();
+            }, 100);
+            return;
         }
         
         if (!isDateTimeStep) {
@@ -91,11 +43,9 @@
         }
 
         console.log('DateTime-Staff Collaborative: Before datetime step loading, step:', new_step_id);
-        console.log('Old step:', old_step_id, 'New step:', new_step_id);
         
-        // IMPORTANT: Check multi-service mode BEFORE loading the step
+        // Check if we're in multi-service mode
         checkMultiServiceMode(booknetic);
-        console.log('Checked multi-service mode:', collaborativeDateTimeStaff.isMultiServiceMode);
         
         // For the combined step, force multi-service mode
         if (new_step_id === 'date_time_staff_combined') {
@@ -111,28 +61,6 @@
 
     // Hook after datetime step loads
     bookneticHooks.addAction('loaded_step', function(booknetic, new_step_id) {
-        // ONLY reset mode when returning to service selection (not when navigating forward/backward between other steps)
-        if (new_step_id === 'service') {
-            console.log('Navigation: Returned to service selection, resetting state and cleaning up');
-            $('.booknetic_collab_datetime_hint').remove();
-            $('.booknetic_collab_staff_section').remove();
-            collaborativeDateTimeStaff.isMultiServiceMode = false;
-            collaborativeDateTimeStaff.selectedServices = [];
-            collaborativeDateTimeStaff.selectedDateTime = null;
-            collaborativeDateTimeStaff.selectedStaff = {};
-            collaborativeDateTimeStaff.availableStaff = {};
-            return;
-        }
-        
-        // Preserve state when navigating to other steps (location, information, confirm, etc.)
-        console.log('Loaded step:', new_step_id);
-        console.log('Preserving collaborative state:', {
-            isMultiServiceMode: collaborativeDateTimeStaff.isMultiServiceMode,
-            selectedServicesCount: collaborativeDateTimeStaff.selectedServices.length,
-            hasDateTime: !!collaborativeDateTimeStaff.selectedDateTime,
-            hasStaff: Object.keys(collaborativeDateTimeStaff.selectedStaff).length
-        });
-        
         var isDateTimeStep = (new_step_id === 'date_time' || 
                               new_step_id === 'date_time_recurring' || 
                               new_step_id === 'date_time_non_recurring' ||
@@ -143,46 +71,18 @@
         }
 
         console.log('DateTime-Staff Collaborative: DateTime step loaded, step:', new_step_id);
-        console.log('Current multi-service mode status:', collaborativeDateTimeStaff.isMultiServiceMode);
-        console.log('Selected services:', collaborativeDateTimeStaff.selectedServices);
-        
-        // Re-check multi-service mode (critical when navigating back from information)
-        // This ensures we have the latest state
-        checkMultiServiceMode(booknetic);
-        
-        console.log('After re-check - Multi-service mode:', collaborativeDateTimeStaff.isMultiServiceMode);
+        console.log('Multi-service mode:', collaborativeDateTimeStaff.isMultiServiceMode);
 
-        // ALWAYS show combined view when in multi-service mode, regardless of step ID
-        if (collaborativeDateTimeStaff.isMultiServiceMode || new_step_id === 'date_time_staff_combined') {
-            console.log('✓ Multi-service mode detected, creating combined view');
-            
+        // Always show combined view for the combined step OR when in multi-service mode
+        if (new_step_id === 'date_time_staff_combined' || collaborativeDateTimeStaff.isMultiServiceMode) {
             // Convert to combined datetime-staff view
-            // Use longer timeout to ensure Booknetic has fully rendered the step
             setTimeout(function() {
-                console.log('Executing combined view creation...');
                 createCombinedView(booknetic);
                 
                 // Add fallback DOM event listeners
                 setupTimeSelectionListener(booknetic);
                 setupDateSelectionListener(booknetic);
-                
-                // If we already have a datetime selection, restore staff view
-                if (collaborativeDateTimeStaff.selectedDateTime) {
-                    console.log('Restoring staff selection from previous state');
-                    setTimeout(function() {
-                        var staffSection = booknetic.panel_js.find('.booknetic_collab_staff_section');
-                        if (staffSection.length > 0) {
-                            staffSection.show();
-                            // Re-render staff if available
-                            if (Object.keys(collaborativeDateTimeStaff.availableStaff).length > 0) {
-                                renderStaffSelection(booknetic);
-                            }
-                        }
-                    }, 200);
-                }
-            }, 600);
-        } else {
-            console.log('Single-service mode, using standard datetime view');
+            }, 300);
         }
     });
     
@@ -414,14 +314,49 @@
         return bookneticHooks.applyFilters('step_validation_date_time', result, booknetic);
     });
 
-    // Save selected staff to cart
+    // STEP 5: Save selected staff and service assignments to cart for next steps
     bookneticHooks.addFilter('bkntc_cart', function(cartItem, booknetic) {
-        if (collaborativeDateTimeStaff.isMultiServiceMode && Object.keys(collaborativeDateTimeStaff.selectedStaff).length > 0) {
-            cartItem.selected_staff = collaborativeDateTimeStaff.selectedStaff;
-            console.log('DateTime-Staff Collaborative: Saved staff to cart', cartItem.selected_staff);
+        if (!collaborativeDateTimeStaff.isMultiServiceMode) {
+            return cartItem;
         }
         
+        console.log('=== STEP 5: Updating cart with multi-service data ===');
+        
+        // Save staff selections
+        if (Object.keys(collaborativeDateTimeStaff.selectedStaff).length > 0) {
+            cartItem.collaborative_staff = collaborativeDateTimeStaff.selectedStaff;
+            console.log('Saved staff assignments:', cartItem.collaborative_staff);
+        }
+        
+        // Ensure selected services are in cart
+        if (collaborativeDateTimeStaff.selectedServices && collaborativeDateTimeStaff.selectedServices.length > 0) {
+            cartItem.selected_services = collaborativeDateTimeStaff.selectedServices;
+            console.log('Saved service selections:', cartItem.selected_services);
+        }
+        
+        // Mark as multi-service booking for backend processing
+        cartItem.is_multi_service = true;
+        
+        console.log('Updated cart item:', cartItem);
+        
         return cartItem;
+    });
+    
+    // STEP 5: Handle backward navigation - restore state when going back to datetime step
+    bookneticHooks.addAction('step_changed', function(booknetic, current_step, previous_step) {
+        console.log('=== STEP 5: Step changed from', previous_step, 'to', current_step, '===');
+        
+        // If going back to datetime step, restore the combined view
+        if (current_step === 'date_time' && collaborativeDateTimeStaff.isMultiServiceMode) {
+            console.log('Restoring combined datetime-staff view');
+            setTimeout(function() {
+                // Show the hint and staff section if they were hidden
+                $('.booknetic_collab_datetime_hint').show();
+                if (Object.keys(collaborativeDateTimeStaff.selectedStaff).length > 0) {
+                    $('.booknetic_collab_staff_section').show();
+                }
+            }, 500);
+        }
     });
 
     // Check if we're in multi-service mode
@@ -429,28 +364,19 @@
         // Try multiple ways to get cart/selected services data
         var selectedServices = null;
         
-        // Method 0: Check our own stored state FIRST (important for backward navigation)
-        if (collaborativeDateTimeStaff.selectedServices && collaborativeDateTimeStaff.selectedServices.length > 0) {
-            selectedServices = collaborativeDateTimeStaff.selectedServices;
-            console.log('Using already stored selected services:', selectedServices);
-        }
-        
         // Method 1: Check if cart data exists in booknetic object
-        if (!selectedServices && booknetic.cartArr && booknetic.cartArr.length > 0 && booknetic.cartArr[0].selected_services) {
+        if (booknetic.cartArr && booknetic.cartArr.length > 0 && booknetic.cartArr[0].selected_services) {
             selectedServices = booknetic.cartArr[0].selected_services;
-            console.log('Found services in cart:', selectedServices);
         }
         
         // Method 2: Check globalCartData if it exists
         if (!selectedServices && typeof window.bookneticCartData !== 'undefined' && window.bookneticCartData.selected_services) {
             selectedServices = window.bookneticCartData.selected_services;
-            console.log('Found services in global cart data:', selectedServices);
         }
         
         // Method 3: Check if data was stored by service step
         if (!selectedServices && typeof window.collaborativeService !== 'undefined' && window.collaborativeService.selectedServices) {
             selectedServices = window.collaborativeService.selectedServices;
-            console.log('Found services in window.collaborativeService:', selectedServices);
         }
         
         // Method 4: Check step_service_collaborative's stored data
@@ -458,38 +384,25 @@
             var serviceStepData = booknetic.panel_js.data('collaborative-selected-services');
             if (serviceStepData) {
                 selectedServices = serviceStepData;
-                console.log('Found services in panel data:', selectedServices);
             }
         }
         
         console.log('DateTime-Staff Collaborative: Checking multi-service mode');
-        console.log('Final selected services:', selectedServices);
+        console.log('Found selected services:', selectedServices);
         
         if (selectedServices && selectedServices.length > 1) {
             collaborativeDateTimeStaff.isMultiServiceMode = true;
             collaborativeDateTimeStaff.selectedServices = selectedServices;
             console.log('DateTime-Staff Collaborative: Multi-service mode enabled with', selectedServices.length, 'services');
-            
-            // Update step visibility
-            updateStepVisibility(booknetic);
         } else {
             collaborativeDateTimeStaff.isMultiServiceMode = false;
             console.log('DateTime-Staff Collaborative: Single-service mode (found', (selectedServices ? selectedServices.length : 0), 'services)');
-            
-            // Update step visibility
-            updateStepVisibility(booknetic);
         }
     }
 
     // Create combined datetime-staff view
     function createCombinedView(booknetic) {
         var panel = booknetic.panel_js;
-        
-        // First, clean up any existing collaborative elements from previous navigation
-        $('.booknetic_collab_datetime_hint').remove();
-        $('.booknetic_collab_staff_section').remove();
-        
-        console.log('DateTime-Staff Collaborative: Cleaned up any existing collaborative elements');
         
         // Find the main content container (right side), NOT the step label in sidebar
         var contentArea = panel.find('.booknetic_appointment_container_body');
@@ -501,6 +414,12 @@
 
         if (contentArea.length === 0) {
             console.warn('Could not find content area!');
+            return;
+        }
+
+        // Check if already initialized
+        if (contentArea.find('.booknetic_collab_datetime_hint').length > 0) {
+            console.log('DateTime-Staff Collaborative: Combined view already exists, skipping');
             return;
         }
 

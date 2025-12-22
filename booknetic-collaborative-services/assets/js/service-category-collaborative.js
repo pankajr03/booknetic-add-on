@@ -15,6 +15,7 @@
         var bkntcCollab = {
             staffList: [],
             currentCategoryId: null,
+            settingsLoaded: false,
 
             init: function() {
                 console.log('Initializing collaborative category features');
@@ -135,6 +136,9 @@
             injectCollaborativeFields: function() {
                 console.log('Attempting to inject collaborative fields...');
                 
+                // Reset settings loaded flag
+                this.settingsLoaded = false;
+                
                 // Check if fields already exist
                 if ($('#bkntc_collab_fields').length > 0) {
                     console.log('Fields already exist, skipping injection');
@@ -172,56 +176,33 @@
                                 <small class="form-text text-muted">Allow customers to select multiple services from this category in one booking</small>\
                             </div>\
                         </div>\
-                        \
-                        <div class="form-row">\
-                            <div class="form-group col-md-6">\
-                                <label for="bkntc_collab_min_staff">Minimum Staff</label>\
-                                <input type="number" \
-                                       class="form-control" \
-                                       id="bkntc_collab_min_staff" \
-                                       min="0" \
-                                       value="0"\
-                                       placeholder="0 = No minimum">\
-                                <small class="form-text text-muted">Minimum staff members required</small>\
-                            </div>\
-                            \
-                            <div class="form-group col-md-6">\
-                                <label for="bkntc_collab_max_staff">Maximum Staff</label>\
-                                <input type="number" \
-                                       class="form-control" \
-                                       id="bkntc_collab_max_staff" \
-                                       min="0" \
-                                       value="0"\
-                                       placeholder="0 = Unlimited">\
-                                <small class="form-text text-muted">0 means unlimited</small>\
-                            </div>\
-                        </div>\
-                        \
-                        <div class="form-row">\
-                            <div class="form-group col-md-12">\
-                                <label for="bkntc_collab_staff_ids">Eligible Staff</label>\
-                                <select multiple \
-                                        class="form-control" \
-                                        id="bkntc_collab_staff_ids" \
-                                        style="height: 120px;">\
-                                </select>\
-                                <small class="form-text text-muted">Hold Ctrl/Cmd to select multiple staff</small>\
-                            </div>\
-                        </div>\
                     </div>\
                 ';
 
                 form.append(html);
                 console.log('Collaborative fields injected successfully');
                 
-                this.populateStaffDropdown();
+                // Try to load existing settings if editing - with delay to ensure form is populated
+                var self = this;
+                setTimeout(function() {
+                    var categoryId = self.getCategoryIdFromForm();
+                    console.log('Checking for category ID to load settings:', categoryId);
+                    if (categoryId && categoryId > 0) {
+                        console.log('Loading settings for category:', categoryId);
+                        self.loadCategorySettings(categoryId);
+                    } else {
+                        console.log('No valid category ID found, this is a new category');
+                    }
+                }, 300);
                 
-                // Try to load existing settings if editing
-                var categoryId = this.getCategoryIdFromForm();
-                if (categoryId) {
-                    console.log('Loading settings for category:', categoryId);
-                    this.loadCategorySettings(categoryId);
-                }
+                // Try again with longer delay
+                setTimeout(function() {
+                    var categoryId = self.getCategoryIdFromForm();
+                    if (categoryId && categoryId > 0 && !self.settingsLoaded) {
+                        console.log('Second attempt - Loading settings for category:', categoryId);
+                        self.loadCategorySettings(categoryId);
+                    }
+                }, 800);
             },
 
             populateStaffDropdown: function() {
@@ -240,6 +221,11 @@
 
             loadCategorySettings: function(categoryId) {
                 var self = this;
+                self.settingsLoaded = true; // Mark that we've attempted to load
+
+                console.log('=== Loading Category Settings ===');
+                console.log('Category ID:', categoryId);
+                console.log('AJAX URL:', bkntcCollabCategory.ajaxurl);
 
                 $.ajax({
                     url: bkntcCollabCategory.ajaxurl,
@@ -250,22 +236,28 @@
                         category_id: categoryId
                     },
                     success: function(response) {
-                        console.log('Category settings response:', response);
+                        console.log('=== Category Settings Response ===');
+                        console.log('Success:', response.success);
+                        console.log('Data:', response.data);
+                        
                         if (response.success) {
                             var data = response.data;
-                            console.log('Loading settings data:', data);
+                            var checkbox = $('#bkntc_collab_allow_multi_select');
                             
-                            $('#bkntc_collab_allow_multi_select').prop('checked', data.allow_multi_select == 1);
-                            $('#bkntc_collab_min_staff').val(data.min_staff || 0);
-                            $('#bkntc_collab_max_staff').val(data.max_staff || 0);
+                            console.log('Checkbox element found:', checkbox.length > 0);
+                            console.log('Setting allow_multi_select to:', data.allow_multi_select);
                             
-                            if (data.staff_ids && data.staff_ids.length > 0) {
-                                console.log('Setting eligible staff:', data.staff_ids);
-                                $('#bkntc_collab_staff_ids').val(data.staff_ids);
-                            }
+                            checkbox.prop('checked', data.allow_multi_select == 1);
+                            
+                            console.log('Checkbox now checked:', checkbox.is(':checked'));
                         } else {
-                            console.log('Failed to load category settings:', response);
+                            console.error('Failed to load settings:', response.data ? response.data.message : 'Unknown error');
                         }
+                    },
+                    error: function(xhr, status, error) {
+                        console.error('=== AJAX Error Loading Settings ===');
+                        console.error('Error:', error);
+                        console.error('Response:', xhr.responseText);
                     }
                 });
             },
@@ -287,20 +279,12 @@
             performSave: function(categoryId) {
                 console.log('performSave called with categoryId:', categoryId);
                 
-                var allowMultiSelect = $('#bkntc_collab_allow_multi_select').is(':checked') ? 1 : 0;
-                var minStaff = parseInt($('#bkntc_collab_min_staff').val()) || 0;
-                var maxStaff = parseInt($('#bkntc_collab_max_staff').val()) || 0;
-                var eligibleStaff = $('#bkntc_collab_staff_ids').val() || [];
+                var checkbox = $('#bkntc_collab_allow_multi_select');
+                var allowMultiSelect = checkbox.is(':checked') ? 1 : 0;
 
-                console.log('Saving:', {categoryId: categoryId, allowMultiSelect: allowMultiSelect, minStaff: minStaff, maxStaff: maxStaff, eligibleStaff: eligibleStaff});
-
-                // Validation
-                if (maxStaff > 0 && maxStaff < minStaff) {
-                    if (typeof booknetic !== 'undefined' && booknetic.toast) {
-                        booknetic.toast('Maximum staff cannot be less than minimum staff', 'error');
-                    }
-                    return;
-                }
+                console.log('Checkbox element:', checkbox.length > 0 ? 'Found' : 'NOT FOUND');
+                console.log('Checkbox checked:', checkbox.is(':checked'));
+                console.log('Saving:', {categoryId: categoryId, allowMultiSelect: allowMultiSelect});
 
                 $.ajax({
                     url: bkntcCollabCategory.ajaxurl,
@@ -309,31 +293,39 @@
                         action: 'bkntc_collab_save_category_settings',
                         nonce: bkntcCollabCategory.nonce,
                         category_id: categoryId,
-                        allow_multi_select: allowMultiSelect,
-                        min_staff: minStaff,
-                        max_staff: maxStaff,
-                        staff_ids: eligibleStaff
+                        allow_multi_select: allowMultiSelect
                     },
                     success: function(response) {
-                        console.log('Save response:', response);
+                        console.log('=== COLLABORATIVE SETTINGS SAVE RESPONSE ===');
+                        console.log('Success:', response.success);
+                        console.log('Full response:', response);
+                        console.log('Response.data:', response.data);
+                        console.log('Response.data keys:', response.data ? Object.keys(response.data) : 'N/A');
+                        
                         if (response.success) {
-                            console.log('Collaborative settings saved for category ' + categoryId);
+                            console.log('✓ Settings saved for category ' + categoryId);
+                            console.log('response.data.settings:', response.data.settings);
+                            console.log('response.data.message:', response.data.message);
+                            console.log('response.data.updated_rows:', response.data.updated_rows);
+                            
                             if (typeof booknetic !== 'undefined' && booknetic.toast) {
                                 booknetic.toast('Collaborative settings saved', 'success');
                             }
                         } else {
-                            console.error('Save failed:', response);
+                            console.error('✗ Save failed:', response);
+                            console.error('Error message:', response.data ? response.data.message : 'Unknown');
                             if (typeof booknetic !== 'undefined' && booknetic.toast) {
-                                booknetic.toast('Error saving collaborative settings: ' + (response.data ? response.data.message : 'Unknown error'), 'error');
+                                booknetic.toast('Error: ' + (response.data ? response.data.message : 'Unknown error'), 'error');
                             }
                         }
                     },
                     error: function(xhr, status, error) {
-                        console.error('AJAX error saving collaborative settings:', error);
+                        console.error('=== COLLABORATIVE SETTINGS AJAX ERROR ===');
+                        console.error('Error:', error);
                         console.error('Status:', status);
-                        console.error('Response:', xhr.responseText);
+                        console.error('Response text:', xhr.responseText);
                         if (typeof booknetic !== 'undefined' && booknetic.toast) {
-                            booknetic.toast('Error saving collaborative settings', 'error');
+                            booknetic.toast('AJAX Error: ' + error, 'error');
                         }
                     }
                 });
@@ -342,30 +334,77 @@
             getCategoryIdFromForm: function() {
                 var categoryId = 0;
                 
-                // Method 1: Try hidden input with name="id"
-                var idInput = $('#addServiceForm').find('[name="id"]');
-                if (idInput.length && idInput.val()) {
-                    categoryId = parseInt(idInput.val());
+                console.log('=== Detecting Category ID ===');
+                
+                // Method 1: Check URL parameters (for edit action)
+                var urlParams = new URLSearchParams(window.location.search);
+                if (urlParams.has('id')) {
+                    categoryId = parseInt(urlParams.get('id'));
+                    console.log('Method 1 - URL param "id":', categoryId);
                 }
                 
-                // Method 2: Try data attribute on form
+                // Method 2: Look for edit action data in AJAX
                 if (!categoryId) {
-                    categoryId = parseInt($('#addServiceForm').data('id')) || 0;
+                    var modal = $('.fs-modal:visible, .modal:visible').last();
+                    // Check if modal has data-id attribute
+                    if (modal.data('id')) {
+                        categoryId = parseInt(modal.data('id'));
+                        console.log('Method 2 - Modal data-id:', categoryId);
+                    }
                 }
                 
-                // Method 3: Try to find it in the modal data
+                // Method 3: Try hidden input with name="id" from any visible form
                 if (!categoryId) {
-                    var modal = $('.fs-modal.fs-modal-slide').last();
-                    categoryId = parseInt(modal.data('category-id')) || 0;
+                    var form = $('.fs-modal:visible form, .modal:visible form, form:visible').last();
+                    console.log('Found form:', form.length > 0);
+                    
+                    var idInput = form.find('input[name="id"], input[id="id"], input[type="hidden"]').filter(function() {
+                        return $(this).attr('name') === 'id' || $(this).attr('id') === 'id';
+                    });
+                    
+                    console.log('ID input elements found:', idInput.length);
+                    idInput.each(function(i) {
+                        console.log('  Input ' + i + ':', {
+                            name: $(this).attr('name'),
+                            id: $(this).attr('id'),
+                            value: $(this).val()
+                        });
+                    });
+                    
+                    if (idInput.length && idInput.val()) {
+                        categoryId = parseInt(idInput.val());
+                        console.log('Method 3 - Form input[name="id"]:', categoryId);
+                    }
                 }
                 
-                // Method 4: Check if there's a script tag with category data
+                // Method 4: Check if there's an input with class or data attribute
                 if (!categoryId) {
-                    var scriptTag = $('#add_new_JS');
-                    categoryId = parseInt(scriptTag.data('category-id')) || 0;
+                    var allInputs = $('form:visible input[type="hidden"]');
+                    console.log('All hidden inputs in visible forms:', allInputs.length);
+                    allInputs.each(function() {
+                        var val = $(this).val();
+                        var name = $(this).attr('name');
+                        if (name === 'id' && val && !isNaN(val) && parseInt(val) > 0) {
+                            categoryId = parseInt(val);
+                            console.log('Method 4 - Found via scan:', categoryId);
+                            return false; // break
+                        }
+                    });
                 }
                 
-                console.log('Found category ID:', categoryId);
+                // Method 5: Try to get from modal title or header
+                if (!categoryId) {
+                    var modalTitle = $('.fs-modal:visible .fs-modal-title, .modal:visible .modal-title').text();
+                    console.log('Modal title:', modalTitle);
+                    // If title contains "Edit" and numbers, try to extract ID
+                    var match = modalTitle.match(/\#(\d+)/);
+                    if (match) {
+                        categoryId = parseInt(match[1]);
+                        console.log('Method 5 - From modal title:', categoryId);
+                    }
+                }
+                
+                console.log('=== Final category ID:', categoryId, '===');
                 return categoryId;
             }
         };

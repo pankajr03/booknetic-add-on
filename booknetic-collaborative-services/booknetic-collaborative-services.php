@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 /**
  * Plugin Name: Booknetic - Collaborative Services
  * Plugin URI:  https://github.com/pankajr03/booknetic-add-on
@@ -100,6 +100,92 @@ final class BookneticCollaborativeServices {
         // Register custom combined DateTime-Staff step
         // Enqueue admin script for step injection
         add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_booking_steps_script']);
+        
+        // Hook into appointment creation to handle collaborative bookings
+        add_action('bkntc_booking_step_confirmation_validation', [$this, 'process_collaborative_booking'], 10);
+        
+        // Admin appointments list - Show collaborative booking groups
+        add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_appointments_list_script']);
+        add_filter('bkntc_appointment_row_data', [$this, 'add_collaborative_data_to_appointment_row'], 10, 2);
+    }
+    
+    /**
+     * Enqueue script for admin appointments list to show collaborative groups
+     */
+    public function enqueue_admin_appointments_list_script($hook) {
+        // Only on Booknetic appointments page
+        if (!isset($_GET['page']) || $_GET['page'] !== 'booknetic' || !isset($_GET['module']) || $_GET['module'] !== 'appointments') {
+            return;
+        }
+        
+        wp_enqueue_script(
+            'booknetic-collab-admin-appointments-list',
+            plugin_dir_url(__FILE__) . 'assets/js/admin-appointments-list.js',
+            ['jquery'],
+            filemtime(plugin_dir_path(__FILE__) . 'assets/js/admin-appointments-list.js'),
+            true
+        );
+        
+        // Add inline CSS for better styling
+        wp_add_inline_style('booknetic-base', '
+            .collab-indicator {
+                white-space: nowrap;
+            }
+            tr[data-collaborative-group] {
+                transition: background-color 0.2s;
+            }
+            tr[data-collaborative-group]:hover {
+                background-color: #f0f4ff !important;
+            }
+        ');
+    }
+    
+    /**
+     * Add collaborative booking data attributes to appointment table rows
+     */
+    public function add_collaborative_data_to_appointment_row($row_data, $appointment) {
+        global $wpdb;
+        
+        $appointment_id = isset($appointment['id']) ? $appointment['id'] : (isset($appointment->id) ? $appointment->id : null);
+        
+        if (!$appointment_id) {
+            return $row_data;
+        }
+        
+        // Get collaborative group data from database
+        $table = $wpdb->prefix . 'bkntc_appointments';
+        $collab_data = $wpdb->get_row($wpdb->prepare(
+            "SELECT collaborative_group_id FROM {$table} WHERE id = %d",
+            $appointment_id
+        ));
+        
+        if ($collab_data && $collab_data->collaborative_group_id) {
+            // Get all appointments in this group
+            $group_appointments = $wpdb->get_results($wpdb->prepare(
+                "SELECT id FROM {$table} WHERE collaborative_group_id = %s ORDER BY id ASC",
+                $collab_data->collaborative_group_id
+            ));
+            
+            // Find the index of this appointment in the group
+            $index = 1;
+            foreach ($group_appointments as $idx => $appt) {
+                if ($appt->id == $appointment_id) {
+                    $index = $idx + 1;
+                    break;
+                }
+            }
+            
+            // Add data attributes for JavaScript to use
+            if (!isset($row_data['data_attributes'])) {
+                $row_data['data_attributes'] = [];
+            }
+            
+            $row_data['data_attributes']['data-collaborative-group'] = esc_attr($collab_data->collaborative_group_id);
+            $row_data['data_attributes']['data-collaborative-index'] = $index;
+            $row_data['data_attributes']['data-collaborative-total'] = count($group_appointments);
+        }
+        
+        return $row_data;
     }
     
     public function ajax_get_staff_list() {
@@ -1239,11 +1325,21 @@ final class BookneticCollaborativeServices {
         
         if (empty($appt_columns)) {
             $wpdb->query("ALTER TABLE {$appointments_table} 
-                ADD COLUMN collab_staff_ids TEXT AFTER staff_id");
+                ADD COLUMN collab_staff_ids TEXT AFTER staff_id,
+                ADD COLUMN collaborative_group_id VARCHAR(255) DEFAULT NULL AFTER collab_staff_ids,
+                ADD INDEX idx_collaborative_group_id (collaborative_group_id)");
             
             if (function_exists('bkntc_cs_log')) {
-                bkntc_cs_log('Added collab_staff_ids column to appointments table');
+                bkntc_cs_log('Added collab_staff_ids and collaborative_group_id columns to appointments table');
             }
+        }
+        
+        // Check if collaborative_group_id exists, if not add it
+        $group_id_column = $wpdb->get_results("SHOW COLUMNS FROM {$appointments_table} LIKE 'collaborative_group_id'");
+        if (empty($group_id_column)) {
+            $wpdb->query("ALTER TABLE {$appointments_table} 
+                ADD COLUMN collaborative_group_id VARCHAR(255) DEFAULT NULL AFTER collab_staff_ids,
+                ADD INDEX idx_collaborative_group_id (collaborative_group_id)");
         }
         
         // Create guests table
@@ -1284,6 +1380,104 @@ final class BookneticCollaborativeServices {
             '1.0.0',
             true
         );
+    }
+    
+    /**
+     * Process collaborative bookings - create multiple appointments with shared group ID
+     */
+    public function process_collaborative_booking() {
+        bkntc_cs_log('process_collaborative_booking: Hook triggered');
+        
+        // Check if this is a collaborative booking
+        if (empty($_POST['cart']) || !is_array($_POST['cart'])) {
+            bkntc_cs_log('process_collaborative_booking: No cart data found');
+            return;
+        }
+        
+        $cart_items = $_POST['cart'];
+        bkntc_cs_log('process_collaborative_booking: Cart items: ' . json_encode($cart_items));
+        
+        // Check if any cart item has collaborative data
+        $has_collaborative = false;
+        $collaborative_group_id = null;
+        
+        foreach ($cart_items as $item) {
+            if (isset($item['is_collaborative_booking']) && $item['is_collaborative_booking'] === true) {
+                $has_collaborative = true;
+                if (isset($item['collaborative_group_id'])) {
+                    $collaborative_group_id = $item['collaborative_group_id'];
+                }
+                break;
+            }
+        }
+        
+        if (!$has_collaborative || !$collaborative_group_id) {
+            bkntc_cs_log('process_collaborative_booking: Not a collaborative booking');
+            return;
+        }
+        
+        bkntc_cs_log('process_collaborative_booking: Processing collaborative booking with group ID: ' . $collaborative_group_id);
+        
+        // Store the collaborative group ID for later use
+        // The actual appointment creation will happen in Booknetic's AppointmentService::createAppointment()
+        // We'll use a filter to modify the appointment data
+        add_filter('bkntc_appointment_data_before_save', [$this, 'add_collaborative_group_to_appointment'], 10, 2);
+        
+        // Store group ID globally for the filter to access
+        global $bkntc_collab_current_group_id;
+        $bkntc_collab_current_group_id = $collaborative_group_id;
+    }
+    
+    /**
+     * Add collaborative group ID to appointment data before saving
+     */
+    public function add_collaborative_group_to_appointment($appointment_data, $cart_item_index) {
+        global $bkntc_collab_current_group_id;
+        
+        if (empty($bkntc_collab_current_group_id)) {
+            return $appointment_data;
+        }
+        
+        // Check if cart data exists
+        if (empty($_POST['cart']) || !is_array($_POST['cart'])) {
+            return $appointment_data;
+        }
+        
+        $cart_items = $_POST['cart'];
+        
+        // Find the corresponding cart item
+        if (!isset($cart_items[$cart_item_index])) {
+            return $appointment_data;
+        }
+        
+        $cart_item = $cart_items[$cart_item_index];
+        
+        // Check if this is a collaborative item
+        if (empty($cart_item['is_collaborative_booking'])) {
+            return $appointment_data;
+        }
+        
+        bkntc_cs_log('add_collaborative_group_to_appointment: Adding group ID to appointment: ' . $bkntc_collab_current_group_id);
+        
+        // Add collaborative metadata to appointment data
+        // We'll store this in a custom column or use the note field
+        if (!isset($appointment_data['note'])) {
+            $appointment_data['note'] = '';
+        }
+        
+        // Append collaborative metadata to note
+        $collab_meta = [
+            'collaborative_group_id' => $bkntc_collab_current_group_id,
+            'collaborative_index' => isset($cart_item['collaborative_service_index']) ? $cart_item['collaborative_service_index'] : 0,
+            'assigned_to' => isset($cart_item['assigned_to']) ? $cart_item['assigned_to'] : 'me',
+            'guest_info' => isset($cart_item['guest_info']) ? $cart_item['guest_info'] : null
+        ];
+        
+        $appointment_data['note'] .= "\n[COLLAB:" . json_encode($collab_meta) . ']';
+        
+        bkntc_cs_log('add_collaborative_group_to_appointment: Metadata added: ' . json_encode($collab_meta));
+        
+        return $appointment_data;
     }
 }
 

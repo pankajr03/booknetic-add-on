@@ -94,6 +94,10 @@ final class BookneticCollaborativeServices {
         add_action('wp_ajax_bkntc_collab_load_combined_step', [$this, 'ajax_load_combined_step']);
         add_action('wp_ajax_nopriv_bkntc_collab_load_combined_step', [$this, 'ajax_load_combined_step']);
         
+        // AJAX handler for geo-location country detection
+        add_action('wp_ajax_bkntc_collab_detect_country_by_ip', [$this, 'ajax_detect_country_by_ip']);
+        add_action('wp_ajax_nopriv_bkntc_collab_detect_country_by_ip', [$this, 'ajax_detect_country_by_ip']);
+        
         // Modify staff step rendering
         add_filter('bkntc_booking_panel_render_staff_info', [$this, 'modify_staff_step_output'], 10, 1);
         
@@ -106,86 +110,181 @@ final class BookneticCollaborativeServices {
         
         // Admin appointments list - Show collaborative booking groups
         add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_appointments_list_script']);
-        add_filter('bkntc_appointment_row_data', [$this, 'add_collaborative_data_to_appointment_row'], 10, 2);
+        add_action('admin_footer', [$this, 'enqueue_admin_appointments_list_fallback']);
+        add_filter('bkntc_datatable_before_render', [$this, 'modify_appointments_datatable'], 10, 2);
+        add_action('wp_ajax_bkntc_collab_get_appointment_groups', [$this, 'ajax_get_appointment_groups']);
     }
     
     /**
      * Enqueue script for admin appointments list to show collaborative groups
      */
     public function enqueue_admin_appointments_list_script($hook) {
-        // Only on Booknetic appointments page
-        if (!isset($_GET['page']) || $_GET['page'] !== 'booknetic' || !isset($_GET['module']) || $_GET['module'] !== 'appointments') {
+        // Debug logging
+        error_log('🔧 enqueue_admin_appointments_list_script called - hook: ' . $hook);
+        if (function_exists('bkntc_cs_log')) {
+            bkntc_cs_log('enqueue_admin_appointments_list_script called - hook: ' . $hook);
+            bkntc_cs_log('GET params - page: ' . (isset($_GET['page']) ? $_GET['page'] : 'not set') . ', module: ' . (isset($_GET['module']) ? $_GET['module'] : 'not set'));
+        }
+        
+        // Only on Booknetic admin pages - the JS will handle conditional logic
+        if (!isset($_GET['page']) || $_GET['page'] !== 'booknetic') {
+            if (function_exists('bkntc_cs_log')) {
+                bkntc_cs_log('Not booknetic page, skipping');
+            }
             return;
+        }
+        
+        $script_path = plugin_dir_path(__FILE__) . 'assets/js/admin-appointments-list.js';
+        $script_url = plugin_dir_url(__FILE__) . 'assets/js/admin-appointments-list.js';
+        
+        if (function_exists('bkntc_cs_log')) {
+            bkntc_cs_log('Enqueuing appointments list script: ' . $script_url);
+            bkntc_cs_log('Script exists: ' . (file_exists($script_path) ? 'yes' : 'no'));
         }
         
         wp_enqueue_script(
             'booknetic-collab-admin-appointments-list',
-            plugin_dir_url(__FILE__) . 'assets/js/admin-appointments-list.js',
+            $script_url,
             ['jquery'],
-            filemtime(plugin_dir_path(__FILE__) . 'assets/js/admin-appointments-list.js'),
+            filemtime($script_path),
             true
         );
         
-        // Add inline CSS for better styling
-        wp_add_inline_style('booknetic-base', '
-            .collab-indicator {
-                white-space: nowrap;
-            }
-            tr[data-collaborative-group] {
-                transition: background-color 0.2s;
-            }
-            tr[data-collaborative-group]:hover {
-                background-color: #f0f4ff !important;
-            }
-        ');
+        // Add inline script to confirm loading
+        wp_add_inline_script('booknetic-collab-admin-appointments-list', 
+            'console.log("✓ Pankaj Kumar Collaborative Appointments List Script Loaded");', 
+            'before'
+        );
     }
     
     /**
-     * Add collaborative booking data attributes to appointment table rows
+     * Fallback to inject script directly in footer if enqueue didn't work
      */
-    public function add_collaborative_data_to_appointment_row($row_data, $appointment) {
-        global $wpdb;
-        
-        $appointment_id = isset($appointment['id']) ? $appointment['id'] : (isset($appointment->id) ? $appointment->id : null);
-        
-        if (!$appointment_id) {
-            return $row_data;
+    public function enqueue_admin_appointments_list_fallback() {
+        if (!isset($_GET['page']) || $_GET['page'] !== 'booknetic') {
+            return;
         }
         
-        // Get collaborative group data from database
-        $table = $wpdb->prefix . 'bkntc_appointments';
-        $collab_data = $wpdb->get_row($wpdb->prepare(
-            "SELECT collaborative_group_id FROM {$table} WHERE id = %d",
-            $appointment_id
-        ));
+        // Check if script was already enqueued
+        if (wp_script_is('booknetic-collab-admin-appointments-list', 'enqueued')) {
+            return;
+        }
         
-        if ($collab_data && $collab_data->collaborative_group_id) {
+        $script_url = plugin_dir_url(__FILE__) . 'assets/js/admin-appointments-list.js';
+        $version = filemtime(plugin_dir_path(__FILE__) . 'assets/js/admin-appointments-list.js');
+        
+        ?>
+        <script>
+        console.log('🔧 Loading Collaborative Appointments List Script (Footer Fallback)');
+        </script>
+        <script src="<?php echo esc_url($script_url); ?>?ver=<?php echo $version; ?>"></script>
+        <?php
+    }
+    
+    /**
+     * AJAX handler to get collaborative group data for appointments
+     */
+    public function ajax_get_appointment_groups() {
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Permission denied']);
+            return;
+        }
+        
+        $appointment_ids = isset($_POST['appointment_ids']) ? array_map('intval', $_POST['appointment_ids']) : [];
+        
+        if (empty($appointment_ids)) {
+            wp_send_json_success([]);
+            return;
+        }
+        
+        global $wpdb;
+        $table = $wpdb->prefix . 'bkntc_appointments';
+        
+        // Get collaborative group IDs for these appointments
+        $placeholders = implode(',', array_fill(0, count($appointment_ids), '%d'));
+        $query = $wpdb->prepare(
+            "SELECT id, collaborative_group_id FROM {$table} WHERE id IN ($placeholders) AND collaborative_group_id IS NOT NULL AND collaborative_group_id != ''",
+            $appointment_ids
+        );
+        
+        $appointments = $wpdb->get_results($query, ARRAY_A);
+        
+        $result = [];
+        
+        foreach ($appointments as $appt) {
+            $group_id = $appt['collaborative_group_id'];
+            
             // Get all appointments in this group
             $group_appointments = $wpdb->get_results($wpdb->prepare(
                 "SELECT id FROM {$table} WHERE collaborative_group_id = %s ORDER BY id ASC",
-                $collab_data->collaborative_group_id
-            ));
+                $group_id
+            ), ARRAY_A);
             
             // Find the index of this appointment in the group
             $index = 1;
-            foreach ($group_appointments as $idx => $appt) {
-                if ($appt->id == $appointment_id) {
+            foreach ($group_appointments as $idx => $group_appt) {
+                if ($group_appt['id'] == $appt['id']) {
                     $index = $idx + 1;
                     break;
                 }
             }
             
-            // Add data attributes for JavaScript to use
-            if (!isset($row_data['data_attributes'])) {
-                $row_data['data_attributes'] = [];
-            }
-            
-            $row_data['data_attributes']['data-collaborative-group'] = esc_attr($collab_data->collaborative_group_id);
-            $row_data['data_attributes']['data-collaborative-index'] = $index;
-            $row_data['data_attributes']['data-collaborative-total'] = count($group_appointments);
+            $result[$appt['id']] = [
+                'group_id' => $group_id,
+                'index' => $index,
+                'total' => count($group_appointments)
+            ];
         }
         
-        return $row_data;
+        wp_send_json_success($result);
+    }
+    
+    /**
+     * Modify appointments DataTable to add collaborative group indicators
+     */
+    public function modify_appointments_datatable($dataTable, $module) {
+        if ($module !== 'appointments') {
+            return $dataTable;
+        }
+        
+        global $wpdb;
+        
+        // Override the ID column to include collaborative booking indicator
+        $dataTable->addColumns(bkntc__('ID'), function($row) use ($wpdb) {
+            $table = $wpdb->prefix . 'bkntc_appointments';
+            $collab_data = $wpdb->get_row($wpdb->prepare(
+                "SELECT collaborative_group_id FROM {$table} WHERE id = %d",
+                $row['id']
+            ), ARRAY_A);
+            
+            $output = $row['id'];
+            
+            if ($collab_data && !empty($collab_data['collaborative_group_id'])) {
+                // Get all appointments in this group
+                $group_appointments = $wpdb->get_results($wpdb->prepare(
+                    "SELECT id FROM {$table} WHERE collaborative_group_id = %s ORDER BY id ASC",
+                    $collab_data['collaborative_group_id']
+                ), ARRAY_A);
+                
+                // Find the index of this appointment in the group
+                $index = 1;
+                foreach ($group_appointments as $idx => $appt) {
+                    if ($appt['id'] == $row['id']) {
+                        $index = $idx + 1;
+                        break;
+                    }
+                }
+                
+                $total = count($group_appointments);
+                
+                // Add the badge
+                $output .= ' <span class="collab-indicator" style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 3px 7px; border-radius: 4px; font-size: 10px; font-weight: bold; margin-left: 6px; vertical-align: middle;" title="Part of collaborative booking"><i class="fa fa-users"></i> ' . $index . '/' . $total . '</span>';
+            }
+            
+            return $output;
+        }, ['is_html' => true], false);
+        
+        return $dataTable;
     }
     
     public function ajax_get_staff_list() {
@@ -569,7 +668,7 @@ final class BookneticCollaborativeServices {
     
     public function enqueue_appointment_assets() {
         if (function_exists('bkntc_cs_log')) {
-            bkntc_cs_log('enqueue_appointment_assets: Called - page=' . (isset($_GET['page']) ? $_GET['page'] : 'none') . ' module=' . (isset($_GET['module']) ? $_GET['module'] : 'none'));
+            bkntc_cs_log('enqueue_appointment_assets: Called - page=' . (isset($_GET['page']) ? $_GET['page'] : 'none') . ' module=' . (isset($_GET['module']) ? $_GET['module'] : 'none') . ' action=' . (isset($_GET['action']) ? $_GET['action'] : 'none'));
         }
         
         // Only on Booknetic appointments page
@@ -577,6 +676,15 @@ final class BookneticCollaborativeServices {
             return;
         }
         if (!isset($_GET['module']) || $_GET['module'] !== 'appointments') {
+            return;
+        }
+        
+        // IMPORTANT: Only load on add/edit/info modals, NOT on the appointments list
+        // The list page has no 'action' parameter, so we skip it
+        if (!isset($_GET['action']) || !in_array($_GET['action'], ['add_new', 'edit', 'info'])) {
+            if (function_exists('bkntc_cs_log')) {
+                bkntc_cs_log('enqueue_appointment_assets: Skipping - not on add/edit/info modal');
+            }
             return;
         }
 
@@ -855,6 +963,15 @@ final class BookneticCollaborativeServices {
                 true
             );
 
+            // Enqueue geo-location handler for auto-filling country code
+            wp_enqueue_script(
+                'bkntc-collab-geolocation-step',
+                BKNTCCS_PLUGIN_URL . 'assets/js/steps/step_information_geolocation.js',
+                ['jquery', 'bkntc-collab-information-step'],
+                time(), // Use timestamp for development
+                true
+            );
+
             // Enqueue step-based confirm handler to display all selected staff
             wp_enqueue_script(
                 'bkntc-collab-confirm-step',
@@ -891,6 +1008,74 @@ final class BookneticCollaborativeServices {
                 bkntc_cs_log('Frontend booking assets enqueued');
             }
         }
+    }
+    
+    /**
+     * AJAX handler to detect user's country by IP address
+     * Uses ip-api.com free service (no API key required)
+     */
+    public function ajax_detect_country_by_ip() {
+        // Allow both logged-in and non-logged-in users
+        if (!check_ajax_referer('bkntc_collab_frontend_nonce', 'nonce', false)) {
+            wp_send_json_error(['message' => 'Invalid nonce']);
+            return;
+        }
+        
+        // Get user's IP address
+        $ip = $this->get_user_ip();
+        
+        if (!$ip || $ip === '127.0.0.1' || $ip === '::1') {
+            // Default to India for localhost or invalid IP
+            wp_send_json_success(['country_code' => 'in']);
+            return;
+        }
+        
+        // Call ip-api.com for geolocation (free, no API key required)
+        $response = wp_remote_get("http://ip-api.com/json/{$ip}?fields=status,countryCode", [
+            'timeout' => 5,
+            'sslverify' => false
+        ]);
+        
+        if (is_wp_error($response)) {
+            // Fallback to India on error
+            wp_send_json_success(['country_code' => 'in']);
+            return;
+        }
+        
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+        
+        if (isset($data['status']) && $data['status'] === 'success' && isset($data['countryCode'])) {
+            wp_send_json_success(['country_code' => strtolower($data['countryCode'])]);
+        } else {
+            // Fallback to India on invalid response
+            wp_send_json_success(['country_code' => 'in']);
+        }
+    }
+    
+    /**
+     * Get user's real IP address (handles proxies and load balancers)
+     */
+    private function get_user_ip() {
+        $ip_keys = [
+            'HTTP_CF_CONNECTING_IP', // Cloudflare
+            'HTTP_X_FORWARDED_FOR',  // Proxy
+            'HTTP_X_REAL_IP',        // Nginx proxy
+            'REMOTE_ADDR'            // Direct connection
+        ];
+        
+        foreach ($ip_keys as $key) {
+            if (!empty($_SERVER[$key])) {
+                $ip = $_SERVER[$key];
+                // Handle comma-separated IPs (get first one)
+                if (strpos($ip, ',') !== false) {
+                    $ip = explode(',', $ip)[0];
+                }
+                return trim($ip);
+            }
+        }
+        
+        return '';
     }
     
     public function ajax_get_frontend_category_rules() {
@@ -1459,8 +1644,10 @@ final class BookneticCollaborativeServices {
         
         bkntc_cs_log('add_collaborative_group_to_appointment: Adding group ID to appointment: ' . $bkntc_collab_current_group_id);
         
-        // Add collaborative metadata to appointment data
-        // We'll store this in a custom column or use the note field
+        // CRITICAL: Add the collaborative_group_id directly to the appointment data
+        $appointment_data['collaborative_group_id'] = $bkntc_collab_current_group_id;
+        
+        // Also add collaborative metadata to note for reference
         if (!isset($appointment_data['note'])) {
             $appointment_data['note'] = '';
         }
@@ -1486,3 +1673,35 @@ BookneticCollaborativeServices::get_instance();
 
 // Hooks
 register_activation_hook(__FILE__, ['BookneticCollaborativeServices', 'activate']);
+
+// CRITICAL: Hook into appointment creation after it's saved to update collaborative_group_id
+add_action('bkntc_appointment_created', function($appointment_id) {
+    global $bkntc_collab_current_group_id;
+    
+    if (empty($bkntc_collab_current_group_id) || empty($appointment_id)) {
+        return;
+    }
+    
+    // Update the appointment with the collaborative group ID
+    global $wpdb;
+    $table = $wpdb->prefix . 'bkntc_appointments';
+    
+    $result = $wpdb->update(
+        $table,
+        ['collaborative_group_id' => $bkntc_collab_current_group_id],
+        ['id' => $appointment_id],
+        ['%s'],
+        ['%d']
+    );
+    
+    if ($result !== false) {
+        if (function_exists('bkntc_cs_log')) {
+            bkntc_cs_log('Updated appointment ' . $appointment_id . ' with collaborative_group_id: ' . $bkntc_collab_current_group_id);
+        }
+    } else {
+        if (function_exists('bkntc_cs_log')) {
+            bkntc_cs_log('ERROR: Failed to update appointment ' . $appointment_id . ' - ' . $wpdb->last_error);
+        }
+    }
+}, 10, 1);
+

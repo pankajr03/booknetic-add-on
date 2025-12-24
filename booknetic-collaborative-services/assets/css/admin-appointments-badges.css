@@ -1,0 +1,25 @@
+/* Collaborative Group Badge Styling for Admin Appointments List */
+
+.collab-group-badge {
+    display: inline-block;
+    background: linear-gradient(135deg, #7c3aed 0%, #764ba2 100%);
+    color: #fff;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: bold;
+    margin-left: 6px;
+    vertical-align: middle;
+    white-space: nowrap;
+    box-shadow: 0 2px 4px rgba(124, 58, 237, 0.2);
+    transition: all 0.2s ease;
+}
+
+.collab-group-badge:hover {
+    box-shadow: 0 4px 8px rgba(124, 58, 237, 0.3);
+    transform: translateY(-1px);
+}
+
+.collab-group-badge i {
+    margin-right: 4px;
+}

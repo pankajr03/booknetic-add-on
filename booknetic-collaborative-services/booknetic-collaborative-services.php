@@ -153,6 +153,10 @@ final class BookneticCollaborativeServices {
      * AJAX handler to save collaborative staff fields for a service
      */
     public function ajax_save_service_collab_fields() {
+        // error_log('Test log');
+        if (function_exists('bkntc_cs_log')) {
+            bkntc_cs_log('Saved collab staff fields for service ');
+        }
         check_ajax_referer('bkntc_collab_service_nonce', 'nonce');
         if (!current_user_can('manage_options')) {
             wp_send_json_error(['message' => 'Permission denied']);

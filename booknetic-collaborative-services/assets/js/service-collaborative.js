@@ -1,7 +1,5 @@
 // Wait for jQuery to be available before running the main code
 // Force ajaxurl to correct value if not set or set incorrectly
-window.ajaxurl = '/wp-admin/admin-ajax.php';
-
 (function waitForjQuery() {
     if (typeof window.jQuery === 'undefined') {
         console.warn('[COLLAB] Waiting for jQuery...');
@@ -31,6 +29,8 @@ window.ajaxurl = '/wp-admin/admin-ajax.php';
                 // Prevent duplicate injection
                 if ($('#bkntc_collab_service_fields').length) {
                     console.log('[COLLAB] Fields already injected');
+                    // Try to load values if editing
+                    ServiceCollaborative.loadCollabFields(form);
                     return;
                 }
 
@@ -92,6 +92,42 @@ window.ajaxurl = '/wp-admin/admin-ajax.php';
                 }
 
                 console.log('%c[COLLAB] ✓ Fields injected successfully', 'color:#4CAF50;');
+
+                // Load values if editing
+                ServiceCollaborative.loadCollabFields(form);
+            },
+            loadCollabFields: function (form) {
+                // Try to get service ID from form or global
+                var serviceId = null;
+                if (typeof window.serviceId !== 'undefined' && window.serviceId) {
+                    serviceId = window.serviceId;
+                } else if ($('#add_new_JS').data('service-id')) {
+                    serviceId = $('#add_new_JS').data('service-id');
+                } else if (form && form.find('input[name="id"]').val()) {
+                    serviceId = form.find('input[name="id"]').val();
+                }
+                if (!serviceId || serviceId == 0) {
+                    console.log('[COLLAB] No serviceId found for loading collab fields');
+                    return;
+                }
+                console.log('[COLLAB] Loading collab fields for serviceId:', serviceId);
+                $.post(bkntcCollabService.ajaxurl, {
+                    action: 'bkntc_collab_get_service_settings',
+                    service_id: serviceId,
+                    nonce: bkntcCollabService.nonce ? bkntcCollabService.nonce : ''
+                }, function (response) {
+                    if (response.success && response.data) {
+                        var min = response.data.collab_min_staff ? parseInt(response.data.collab_min_staff) : 1;
+                        var max = response.data.collab_max_staff ? parseInt(response.data.collab_max_staff) : 1;
+                        $('#bkntc_collab_service_min_staff').val(min);
+                        $('#bkntc_collab_service_max_staff').val(max);
+                        console.log('[COLLAB] Loaded collab fields:', min, max);
+                    } else {
+                        console.log('[COLLAB] No collab fields found for service:', response);
+                    }
+                }).fail(function (jqXHR, textStatus, errorThrown) {
+                    console.error('[COLLAB][AJAX ERROR][loadCollabFields]', textStatus, errorThrown, jqXHR.responseText);
+                });
             },
 
             init: function () {
@@ -124,12 +160,12 @@ window.ajaxurl = '/wp-admin/admin-ajax.php';
                     alert('Invalid staff values');
                     return;
                 }
-                $.post(ajaxurl, {
+                $.post(bkntcCollabService.ajaxurl, {
                     action: 'bkntc_collab_save_service_collab_fields',
                     id: serviceId,
                     collab_min_staff: minStaff,
                     collab_max_staff: maxStaff,
-                    nonce: (window.bkntcCollabService && window.bkntcCollabService.nonce) ? window.bkntcCollabService.nonce : ''
+                    nonce: bkntcCollabService.nonce ? bkntcCollabService.nonce : ''
                 }, function (response) {
                     if (response.success) {
                         console.log('[COLLAB] Collaborative staff fields saved');

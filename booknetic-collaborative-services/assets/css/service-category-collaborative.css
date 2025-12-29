@@ -69,3 +69,8 @@
     border-radius: 3px;
     vertical-align: middle;
 }
+/* Date and Time Area Adjustments */
+.booknetic_date_time_area {
+    flex-wrap: wrap!important;
+    overflow-x: hidden!important;
+}

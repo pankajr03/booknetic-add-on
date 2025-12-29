@@ -32,6 +32,37 @@ final class BookneticCollaborativeServices {
 
     private function __construct() {
         add_action('plugins_loaded', [$this, 'init']);
+        // Fallback: Always output script in admin_footer for Booknetic services module
+        add_action('admin_footer', [$this, 'force_service_script_in_footer'], 99);
+    }
+    /**
+     * Fallback: Directly output service-collaborative.js in admin_footer for Booknetic services module
+     */
+    public function force_service_script_in_footer() {
+        ?>
+        <script type="text/javascript">
+            console.log('[COLLAB] Fallback: Injecting service-collaborative.js via admin_footer');
+        </script>
+        <?php
+        if (!isset($_GET['page']) || $_GET['page'] !== 'booknetic') {
+            return;
+        }
+        // Only for services module
+        if (!isset($_GET['module']) || $_GET['module'] !== 'services') {
+            return;
+        }
+        $script_url = BKNTCCS_PLUGIN_URL . 'assets/js/service-collaborative.js';
+        $ajax_url = admin_url('admin-ajax.php');
+        ?>
+        <script type="text/javascript">
+            console.log('[COLLAB] Fallback: Injecting service-collaborative.js via admin_footer');
+            var bkntcCollabService = {
+                ajaxurl: '<?php echo esc_js($ajax_url); ?>',
+                nonce: '<?php echo wp_create_nonce('bkntc_collab_service_nonce'); ?>'
+            };
+        </script>
+        <script type="text/javascript" src="<?php echo esc_url($script_url); ?>?v=<?php echo time(); ?>"></script>
+        <?php
     }
 
     public function init() {
@@ -63,16 +94,20 @@ final class BookneticCollaborativeServices {
         add_action('wp_ajax_bkntc_collab_get_category_settings', [$this, 'ajax_get_category_settings']);
         
         // Service Collaborative features
+    
         add_action('admin_enqueue_scripts', [$this, 'enqueue_service_assets']);
+        add_action('admin_print_scripts', [$this, 'inject_service_script']);
+        add_action('admin_print_footer_scripts', [$this, 'inject_service_script']);
+        add_action('admin_head', [$this, 'inject_service_script']);
         add_action('wp_ajax_bkntc_collab_get_service_settings', [$this, 'ajax_get_service_settings']);
-        
+        add_action('wp_ajax_bkntc_collab_save_service_collab_fields', [$this, 'ajax_save_service_collab_fields']);
         // Hook into Booknetic service save to persist collab fields
         add_filter('bkntc_service_insert_data', [$this, 'filter_service_save_data'], 10, 1);
         
         // Register Appointment AJAX handlers
         add_action('wp_ajax_bkntc_collab_get_appointment_staff', [$this, 'ajax_get_appointment_staff']);
         add_action('wp_ajax_bkntc_collab_save_appointment_staff', [$this, 'ajax_save_appointment_staff']);
-            add_action('wp_ajax_bkntc_collab_get_category_rules', [$this, 'ajax_get_category_rules']);
+        add_action('wp_ajax_bkntc_collab_get_category_rules', [$this, 'ajax_get_category_rules']);
         
         // Enqueue appointment assets
         add_action('admin_enqueue_scripts', [$this, 'enqueue_appointment_assets']);
@@ -113,6 +148,46 @@ final class BookneticCollaborativeServices {
         add_filter('bkntc_datatable_after_render', [$this, 'modify_appointments_datatable_html'], 10, 2);
         add_action('wp_ajax_bkntc_collab_get_appointment_groups', [$this, 'ajax_get_appointment_groups']);
     }
+
+    /**
+     * AJAX handler to save collaborative staff fields for a service
+     */
+    public function ajax_save_service_collab_fields() {
+        check_ajax_referer('bkntc_collab_service_nonce', 'nonce');
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Permission denied']);
+        }
+        $service_id = isset($_POST['id']) ? intval($_POST['id']) : 0;
+        $min_staff = isset($_POST['collab_min_staff']) ? intval($_POST['collab_min_staff']) : 1;
+        $max_staff = isset($_POST['collab_max_staff']) ? intval($_POST['collab_max_staff']) : 1;
+        if ($service_id <= 0) {
+            wp_send_json_error(['message' => 'Invalid service ID']);
+        }
+        global $wpdb;
+        $table = $wpdb->prefix . 'bkntc_services';
+        $result = $wpdb->update(
+            $table,
+            [
+                'collab_min_staff' => $min_staff,
+                'collab_max_staff' => $max_staff
+            ],
+            ['id' => $service_id],
+            ['%d', '%d'],
+            ['%d']
+        );
+        if ($result !== false) {
+            if (function_exists('bkntc_cs_log')) {
+                bkntc_cs_log('Saved collab staff fields for service ' . $service_id . ': min=' . $min_staff . ', max=' . $max_staff);
+            }
+            wp_send_json_success(['message' => 'Collaborative staff fields saved']);
+        } else {
+            if (function_exists('bkntc_cs_log')) {
+                bkntc_cs_log('Failed to save collab staff fields for service ' . $service_id . ': ' . $wpdb->last_error);
+            }
+            wp_send_json_error(['message' => 'Database error: ' . $wpdb->last_error]);
+        }
+    }
+    
     
     /**
      * Enqueue script for admin appointments list to show collaborative groups
@@ -777,12 +852,10 @@ final class BookneticCollaborativeServices {
         
         $js_file = BKNTCCS_PLUGIN_URL . 'assets/js/service-category-collaborative.js';
         $css_file = BKNTCCS_PLUGIN_URL . 'assets/css/service-category-collaborative.css';
-        
         if (function_exists('bkntc_cs_log')) {
             bkntc_cs_log('JS File URL: ' . $js_file);
             bkntc_cs_log('CSS File URL: ' . $css_file);
         }
-        
         // Prevent multiple injections
         static $injected = false;
         if ($injected) {
@@ -792,17 +865,16 @@ final class BookneticCollaborativeServices {
             return;
         }
         $injected = true;
-        
         ?>
         <!-- Collaborative Category Scripts -->
         <link rel="stylesheet" href="<?php echo esc_url($css_file); ?>?v=<?php echo time(); ?>">
         <script type="text/javascript">
-            console.log('=== Collaborative Category Script Loading ===');
-            var bkntcCollabCategory = {
+            // Always define bkntcCollabCategory before script loads
+            window.bkntcCollabCategory = {
                 nonce: '<?php echo wp_create_nonce('bkntc_collab_category_nonce'); ?>',
                 ajaxurl: '<?php echo admin_url('admin-ajax.php'); ?>'
             };
-            console.log('bkntcCollabCategory config:', bkntcCollabCategory);
+            console.log('bkntcCollabCategory config:', window.bkntcCollabCategory);
         </script>
         <script type="text/javascript" src="<?php echo esc_url($js_file); ?>?v=<?php echo time(); ?>"></script>
         <!-- End Collaborative Category Scripts -->
@@ -907,7 +979,9 @@ final class BookneticCollaborativeServices {
         if (!isset($_GET['ajax']) || (string) $_GET['ajax'] !== '1') return;
 
         $action = isset($_POST['action']) ? $_POST['action'] : (isset($_GET['action']) ? $_GET['action'] : '');
-        
+        if (strpos($action, 'bkntc_collab_') === 0) {
+            return; // Let WordPress handle collaborative AJAX actions
+        }
         // Only intercept our specific collaborative_services actions - be very strict
         if ($action !== 'collaborative_services' && 
             $action !== 'settings.collaborative_services' && 
@@ -991,30 +1065,45 @@ final class BookneticCollaborativeServices {
         if (function_exists('bkntc_cs_log')) {
             bkntc_cs_log('log_request_params: REQUEST_URI=' . $req . ' METHOD=' . $method . ' action=' . $action . ' ajax=' . $ajax . ' GET=' . print_r($_GET, true));
         }
-        
         // Direct output for service_categories module - bypass WordPress hooks
         // Only output on actual page loads, never during AJAX
         if (isset($_GET['module']) && $_GET['module'] === 'service_categories' && !isset($_GET['ajax'])) {
             $js_file = BKNTCCS_PLUGIN_URL . 'assets/js/service-category-collaborative.js';
             $css_file = BKNTCCS_PLUGIN_URL . 'assets/css/service-category-collaborative.css';
-            
             if (function_exists('bkntc_cs_log')) {
                 bkntc_cs_log('Direct output collaborative scripts for service_categories');
             }
-            
-            // Output directly to the page
             echo '<!-- Collaborative Category Scripts via Direct Output -->';
             echo '<link rel="stylesheet" href="' . esc_url($css_file) . '?v=' . time() . '">';
             echo '<script type="text/javascript">';
-            echo 'console.log("=== Collaborative Category Script Loading (Direct) ===");';
-            echo 'var bkntcCollabCategory = {';
+            echo 'window.bkntcCollabCategory = {';
             echo '  nonce: "' . wp_create_nonce('bkntc_collab_category_nonce') . '",';
             echo '  ajaxurl: "' . admin_url('admin-ajax.php') . '"';
             echo '};';
-            echo 'console.log("bkntcCollabCategory config:", bkntcCollabCategory);';
+            echo 'console.log("bkntcCollabCategory config:", window.bkntcCollabCategory);';
             echo '</script>';
             echo '<script type="text/javascript" src="' . esc_url($js_file) . '?v=' . time() . '"></script>';
             echo '<!-- End Collaborative Category Scripts -->';
+        }
+
+        // Direct output for services module - bypass WordPress hooks
+        // Only output on actual page loads, never during AJAX
+        if (isset($_GET['module']) && $_GET['module'] === 'services' && !isset($_GET['ajax'])) {
+            $js_file = BKNTCCS_PLUGIN_URL . 'assets/js/service-collaborative.js';
+            if (function_exists('bkntc_cs_log')) {
+                bkntc_cs_log('Direct output collaborative scripts for services');
+            }
+            echo '<!-- Collaborative Service Scripts via Direct Output -->';
+            echo '<script type="text/javascript">';
+            echo 'console.log("=== Collaborative Service Script Loading (Direct) ===");';
+            echo 'var bkntcCollabService = {';
+            echo '  nonce: "' . wp_create_nonce('bkntc_collab_service_nonce') . '",';
+            echo '  ajaxurl: "' . admin_url('admin-ajax.php') . '"';
+            echo '};';
+            echo 'console.log("bkntcCollabService config:", bkntcCollabService);';
+            echo '</script>';
+            echo '<script type="text/javascript" src="' . esc_url($js_file) . '?v=' . time() . '"></script>';
+            echo '<!-- End Collaborative Service Scripts -->';
         }
         
         // Direct output for appointments module - bypass WordPress hooks
@@ -1078,6 +1167,10 @@ final class BookneticCollaborativeServices {
                 time(), // Use timestamp for development
                 true
             );
+            $css_file = BKNTCCS_PLUGIN_URL . 'assets/css/service-category-collaborative.css';
+            ?>
+            <link rel="stylesheet" href="<?php echo esc_url($css_file); ?>?v=<?php echo time(); ?>">
+            <?php
             
             // LEGACY: Old datetime-staff handler (kept for compatibility, but combined step takes priority)
             wp_enqueue_script(
@@ -1141,6 +1234,8 @@ final class BookneticCollaborativeServices {
             if (function_exists('bkntc_cs_log')) {
                 bkntc_cs_log('Frontend booking assets enqueued');
             }
+
+            
         }
     }
     
@@ -1473,22 +1568,62 @@ final class BookneticCollaborativeServices {
 
     // Service Collaborative handlers
     public function enqueue_service_assets() {
-        $screen = get_current_screen();
         
-        // Only load on Services page
-        if ($screen && strpos($screen->id, 'booknetic') !== false) {
-            wp_enqueue_script(
-                'bkntc-collab-service',
-                BKNTCCS_PLUGIN_URL . 'assets/js/service-collaborative.js',
-                ['jquery'],
-                time(),
-                true
-            );
-            
-            if (function_exists('bkntc_cs_log')) {
-                bkntc_cs_log('Service collaborative assets enqueued');
-            }
+        // Load on all Booknetic admin pages since content loads via AJAX
+        if (!isset($_GET['page']) || $_GET['page'] !== 'booknetic') {
+            return;
         }
+        
+        // Load on ALL booknetic pages (not just services) since it's AJAX-loaded
+        error_log('BKNTC Collab: Enqueuing service-collaborative.js');
+        
+        wp_enqueue_script(
+            'bkntc-collab-service',
+            BKNTCCS_PLUGIN_URL . 'assets/js/service-collaborative.js',
+            ['jquery'],
+            time(),
+            true
+        );
+        
+        // Pass ajaxurl to JavaScript
+        wp_localize_script('bkntc-collab-service', 'bkntcCollabService', [
+            'ajaxurl' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('bkntc_collab_service_nonce')
+        ]);
+        
+        // Add inline script to verify loading
+        wp_add_inline_script('bkntc-collab-service', 'console.log("Service Collaborative Script Loaded - waiting for modal...");', 'before');
+        
+        if (function_exists('bkntc_cs_log')) {
+            bkntc_cs_log('Service collaborative assets enqueued');
+        }
+    }
+    
+    public function inject_service_script() {
+        // Only inject once per page load
+        static $injected = false;
+        if ($injected) {
+            return;
+        }
+        
+        // Only on Booknetic pages
+        if (!isset($_GET['page']) || $_GET['page'] !== 'booknetic') {
+            return;
+        }
+        
+        $injected = true;
+        $script_url = BKNTCCS_PLUGIN_URL . 'assets/js/service-collaborative.js';
+        $ajax_url = admin_url('admin-ajax.php');
+        ?>
+        <script type="text/javascript">
+            console.log('BKNTC Collab Service: Script injected inline');
+            var bkntcCollabService = {
+                ajaxurl: '<?php echo esc_js($ajax_url); ?>',
+                nonce: '<?php echo wp_create_nonce('bkntc_collab_service_nonce'); ?>'
+            };
+        </script>
+        <script type="text/javascript" src="<?php echo esc_url($script_url); ?>?v=<?php echo time(); ?>"></script>
+        <?php
     }
     
     public function ajax_get_service_settings() {

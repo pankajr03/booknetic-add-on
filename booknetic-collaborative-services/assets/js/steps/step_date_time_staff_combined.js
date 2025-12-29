@@ -1,4 +1,4 @@
-(function($) {
+(function ($) {
     'use strict';
 
     console.log('=== Combined DateTime-Staff Step Script Loaded ===');
@@ -13,16 +13,16 @@
     };
 
     // Intercept date_time step and convert to combined step in multi-service mode
-    bookneticHooks.addAction('before_step_loading', function(booknetic, new_step_id, old_step_id) {
+    bookneticHooks.addAction('before_step_loading', function (booknetic, new_step_id, old_step_id) {
         if (new_step_id !== 'date_time' && new_step_id !== 'date_time_non_recurring' && new_step_id !== 'date_time_recurring') {
             return;
         }
 
         console.log('Combined Step: Intercepting date_time step');
-        
+
         // Check if we're in multi-service mode
         checkMultiServiceMode(booknetic);
-        
+
         if (!combinedStep.isMultiServiceMode) {
             console.log('Combined Step: Single service mode, loading standard date_time step');
             booknetic.stepManager.loadStandartSteps(new_step_id, old_step_id);
@@ -30,60 +30,60 @@
         }
 
         console.log('Combined Step: Multi-service mode detected, using combined view');
-        
+
         // Let Booknetic load the standard datetime step first
         booknetic.stepManager.loadStandartSteps(new_step_id, old_step_id);
-        
+
         // Then we'll enhance it with staff selection in loaded_step hook
     });
 
     // Skip staff step in multi-service mode (it's already included in combined step)
-    bookneticHooks.addFilter('step_is_visible_staff', function(is_visible, booknetic) {
+    bookneticHooks.addFilter('step_is_visible_staff', function (is_visible, booknetic) {
         if (combinedStep.isMultiServiceMode) {
             console.log('Combined Step: Hiding separate staff step');
             return false;
         }
         return is_visible;
     });
-    
+
     // After datetime step loads, add staff selection section
-    bookneticHooks.addAction('loaded_step', function(booknetic, new_step_id, old_step_id) {
+    bookneticHooks.addAction('loaded_step', function (booknetic, new_step_id, old_step_id) {
         if (new_step_id !== 'date_time' && new_step_id !== 'date_time_non_recurring' && new_step_id !== 'date_time_recurring') {
             return;
         }
-        
+
         // Re-check multi-service mode
         checkMultiServiceMode(booknetic);
-        
+
         if (!combinedStep.isMultiServiceMode) {
             return; // Single service, use standard flow
         }
-        
+
         console.log('Combined Step: Enhancing standard datetime with staff section');
-        
-        setTimeout(function() {
+
+        setTimeout(function () {
             addStaffSection(booknetic);
             setupDOMTimeListener(booknetic);
         }, 300);
     });
-    
+
     // Register global time_selected hook to catch Booknetic's time selection
-    bookneticHooks.addAction('time_selected', function(booknetic, date, time) {
+    bookneticHooks.addAction('time_selected', function (booknetic, date, time) {
         if (!combinedStep.isMultiServiceMode) {
             return;
         }
-        
+
         console.log('Combined Step: Time selected via Booknetic hook', date, time);
-        
+
         combinedStep.selectedDateTime = { date: date, time: time };
         combinedStep.dateTimeSelected = true;
-        
+
         // Load staff for this datetime
         loadStaffForAllServices(booknetic);
     }, 10);
 
     // Validate combined step
-    bookneticHooks.addFilter('step_validation_date_time', function(result, booknetic) {
+    bookneticHooks.addFilter('step_validation_date_time', function (result, booknetic) {
         if (!combinedStep.isMultiServiceMode) {
             return result; // Use default validation for single service
         }
@@ -138,13 +138,13 @@
         if (selectedServices && selectedServices.length > 1) {
             combinedStep.isMultiServiceMode = true;
             combinedStep.selectedServices = selectedServices;
-            
+
             // Store in panel data
             if (booknetic.panel_js) {
                 booknetic.panel_js.data('collab-multi-service-mode', true);
                 booknetic.panel_js.data('collab-selected-services', selectedServices);
             }
-            
+
             console.log('Combined Step: Multi-service mode enabled with', selectedServices.length, 'services');
         } else {
             combinedStep.isMultiServiceMode = false;
@@ -155,16 +155,16 @@
     // Add staff selection section below the standard datetime picker
     function addStaffSection(booknetic) {
         var panel = booknetic.panel_js;
-        var contentArea = panel.find('.booknetic_appointment_container_body');
-        
+        var contentArea = panel.find('.booknetic_date_time_area');
+
         // Check if already added
         if (contentArea.find('.booknetic_combined_staff_section').length > 0) {
             console.log('Combined Step: Staff section already exists');
             return;
         }
-        
+
         console.log('Combined Step: Adding staff section');
-        
+
         // Add hint
         // var hintHtml = '<div class="booknetic_combined_hint" style="background: #e8f5e9; padding: 12px; margin-bottom: 15px; border-left: 4px solid #4caf50; border-radius: 4px;">' +
         //                '<strong style="color: #2e7d32;">Combined Booking:</strong> ' +
@@ -173,50 +173,50 @@
         // contentArea.prepend(hintHtml);
 
         // Create staff section (hidden initially)
-        var staffHtml = '<div class="booknetic_combined_staff_section" style="display: none; margin-top: 20px; padding-top: 20px; border-top: 2px solid #e0e0e0;">' +
-                        '<div class="booknetic_combined_staff_header" style="padding: 15px; background: #f5f5f5; border-radius: 4px; margin-bottom: 15px;">' +
-                        '<h4 style="margin: 0 0 5px 0; color: #333;">Step 2: Select Staff for Each Service</h4>' +
-                        '<p style="margin: 0; color: #666; font-size: 14px;">Choose staff members after selecting time</p>' +
-                        '</div>' +
-                        '<div class="booknetic_combined_staff_content"></div>' +
-                        '</div>';
+        var staffHtml = '<div class="booknetic_combined_staff_section" style="display: none; flex-basis: 100%; width: 100%; max-width: 100%; box-sizing: border-box;">' +
+            '<div class="booknetic_combined_staff_header" style="padding: 15px; background: #f5f5f5; border-radius: 4px; margin-bottom: 15px;">' +
+            '<p style="margin: 0 0 5px 0; color: #333;">Step 2: Select Staff for Each Service</p>' +
+            '<p style="margin: 0; color: #666; font-size: 14px;">Choose staff members after selecting time</p>' +
+            '</div>' +
+            '<div class="booknetic_combined_staff_content"></div>' +
+            '</div>';
         contentArea.append(staffHtml);
     }
-    
+
     // Setup DOM listener as fallback to detect time selection
     function setupDOMTimeListener(booknetic) {
         var panel = booknetic.panel_js;
-        
+
         console.log('Combined Step: Setting up DOM time listener');
-        
+
         // Remove any existing listeners to prevent duplicates
         panel.off('click.combined_step', '.booknetic_times_list > div');
-        
+
         // Listen for time selection
-        panel.on('click.combined_step', '.booknetic_times_list > div', function() {
+        panel.on('click.combined_step', '.booknetic_times_list > div', function () {
             console.log('Combined Step: Time clicked via DOM');
-            
+
             // Wait a bit for Booknetic to process the selection
-            setTimeout(function() {
+            setTimeout(function () {
                 var selectedDate = panel.find('.booknetic_calendar_selected_day').data('date');
                 var selectedTime = panel.find('.booknetic_selected_time').data('time');
-                
+
                 console.log('Combined Step: Captured - Date:', selectedDate, 'Time:', selectedTime);
-                
+
                 if (selectedDate && selectedTime && combinedStep.isMultiServiceMode) {
                     combinedStep.selectedDateTime = {
                         date: selectedDate,
                         time: selectedTime
                     };
                     combinedStep.dateTimeSelected = true;
-                    
+
                     console.log('Combined Step: Loading staff for selected datetime');
                     loadStaffForAllServices(booknetic);
                 }
             }, 200);
         });
     }
-    
+
     // Setup hook to detect time selection from Booknetic's standard handler (DEPRECATED)
     function setupTimeSelectionHook(booknetic) {
         // Moved to global level - this function is no longer needed
@@ -253,7 +253,7 @@
         staffContent.html('<div style="text-align: center; padding: 40px;"><div class="booknetic_loading_icon"></div><p>Loading available staff...</p></div>');
 
         var promises = [];
-        combinedStep.selectedServices.forEach(function(serviceItem) {
+        combinedStep.selectedServices.forEach(function (serviceItem) {
             var promise = $.ajax({
                 url: BookneticCollabFrontend.ajaxurl,
                 type: 'POST',
@@ -268,7 +268,7 @@
             promises.push(promise);
         });
 
-        $.when.apply($, promises).done(function() {
+        $.when.apply($, promises).done(function () {
             var responses = arguments;
             if (combinedStep.selectedServices.length === 1) {
                 responses = [responses];
@@ -277,7 +277,7 @@
             for (var i = 0; i < responses.length; i++) {
                 var response = responses[i][0];
                 var serviceId = combinedStep.selectedServices[i].service_id;
-                
+
                 if (response && response.success) {
                     combinedStep.availableStaff[serviceId] = response.data.staff || [];
                 } else {
@@ -286,7 +286,7 @@
             }
 
             renderStaffSelection(booknetic);
-        }).fail(function(error) {
+        }).fail(function (error) {
             console.error('Combined Step: Failed to load staff', error);
             staffContent.html('<div style="text-align: center; padding: 40px; color: #f44336;">Error loading staff</div>');
         });
@@ -299,28 +299,28 @@
 
         var html = '<div class="booknetic_combined_staff_list">';
 
-        combinedStep.selectedServices.forEach(function(serviceItem) {
+        combinedStep.selectedServices.forEach(function (serviceItem) {
             var serviceId = serviceItem.service_id;
             var staff = combinedStep.availableStaff[serviceId] || [];
             var serviceName = 'Service #' + serviceId;
 
             html += '<div class="booknetic_service_staff_group" style="margin-bottom: 30px; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;" data-service-id="' + serviceId + '">';
-            html += '<h4 style="margin: 0 0 15px 0;">' + serviceName + '</h4>';
+            html += '<p style="margin: 0 0 15px 0;">' + serviceName + '</p>';
 
             if (staff.length === 0) {
                 html += '<p style="color: #f44336;">No staff available</p>';
             } else {
                 html += '<div class="booknetic_staff_cards" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 15px;">';
-                
-                staff.forEach(function(staffMember) {
+
+                staff.forEach(function (staffMember) {
                     var isSelected = combinedStep.selectedStaff[serviceId] && combinedStep.selectedStaff[serviceId].indexOf(staffMember.id) !== -1;
-                    
+
                     html += '<div class="booknetic_staff_card ' + (isSelected ? 'selected' : '') + '" data-staff-id="' + staffMember.id + '" ' +
-                            'style="padding: 15px; border: 2px solid ' + (isSelected ? '#2196F3' : '#e0e0e0') + '; border-radius: 8px; cursor: pointer; text-align: center;">';
+                        'style="padding: 15px; border: 2px solid ' + (isSelected ? '#2196F3' : '#e0e0e0') + '; border-radius: 8px; cursor: pointer; text-align: center;">';
                     html += '<div style="font-weight: 600;">' + staffMember.name + '</div>';
                     html += '</div>';
                 });
-                
+
                 html += '</div>';
             }
 
@@ -331,7 +331,7 @@
         staffContent.html(html);
 
         // Handle staff selection
-        panel.on('click', '.booknetic_staff_card', function() {
+        panel.on('click', '.booknetic_staff_card', function () {
             var staffId = parseInt($(this).data('staff-id'));
             var serviceId = parseInt($(this).closest('.booknetic_service_staff_group').data('service-id'));
 

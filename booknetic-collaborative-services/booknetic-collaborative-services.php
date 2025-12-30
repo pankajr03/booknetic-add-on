@@ -983,11 +983,13 @@ final class BookneticCollaborativeServices {
         if (!isset($_GET['ajax']) || (string) $_GET['ajax'] !== '1') return;
 
         $action = isset($_POST['action']) ? $_POST['action'] : (isset($_GET['action']) ? $_GET['action'] : '');
+        $module = isset($_POST['module']) ? $_POST['module'] : (isset($_GET['module']) ? $_GET['module'] : '');
         if (strpos($action, 'bkntc_collab_') === 0) {
             return; // Let WordPress handle collaborative AJAX actions
         }
         // Only intercept our specific collaborative_services actions - be very strict
-        if ($action !== 'collaborative_services' && 
+        if ($module !== 'collaborative_services' &&
+            $action !== 'collaborative_services' && 
             $action !== 'settings.collaborative_services' && 
             $action !== 'collaborative_services.save' && 
             $action !== 'settings.collaborative_services.save') {
@@ -997,10 +999,13 @@ final class BookneticCollaborativeServices {
         if (function_exists('bkntc_cs_log')) {
             bkntc_cs_log('maybe_handle_booknetic_ajax: intercepted action=' . $action . ' | POST: ' . json_encode($_POST));
         }
-
+        
         // Handle save action
-        if ($action === 'collaborative_services.save' || $action === 'settings.collaborative_services.save') {
+        if ($module === 'collaborative_services' && ($action === 'save' || $action === 'settings.collaborative_services.save')) {
             
+            if (function_exists('bkntc_cs_log')) {
+                bkntc_cs_log('coming into save handler');
+            }
             // Check permissions
             if (!current_user_can('manage_options')) {
                 echo json_encode(['status' => 'error', 'message' => 'Permission denied']);
@@ -1221,9 +1226,11 @@ final class BookneticCollaborativeServices {
                 true
             );
             
+            $guest_info_required = get_option('bkntc_collaborative_guest_info_required', 'optional');
             wp_localize_script('bkntc-collab-frontend-booking', 'BookneticCollabFrontend', array(
                 'ajaxurl' => admin_url('admin-ajax.php'),
-                'nonce' => wp_create_nonce('bkntc_collab_frontend_nonce')
+                'nonce' => wp_create_nonce('bkntc_collab_frontend_nonce'),
+                'guest_info_required' => $guest_info_required
             ));
             
             // Add inline script to verify loading

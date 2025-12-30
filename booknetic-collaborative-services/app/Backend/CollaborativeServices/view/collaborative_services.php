@@ -28,9 +28,9 @@ $guest_info_required = get_option('bkntc_collaborative_guest_info_required', 'op
             </div>
         </div>
 
-        <button type="button" class="btn btn-lg btn-success" id="collaborative_services_save_btn">
+        <!-- <button type="button" class="btn btn-lg btn-success" id="collaborative_services_save_btn">
             <i class="fa fa-check pr-2"></i><?php echo bkntc__('SAVE CHANGES')?>
-        </button>
+        </button> -->
     </form>
 </div>
 
@@ -39,12 +39,12 @@ $guest_info_required = get_option('bkntc_collaborative_guest_info_required', 'op
     "use strict";
 
     $(document).ready(function() {
-        $('#collaborative_services_save_btn').on('click', function() {
+        $('.settings-save-btn').on('click', function() {
             var data = new FormData($('#collaborative_services_area')[0]);
 
             // Use collaborative_services.save to match submenu action
-            data.append('module', 'settings');
-            data.append('action', 'collaborative_services.save');
+            // data.set('module', 'settings'); // set is safer than append
+            // data.set('action', 'collaborative_services.save');
             booknetic.ajax('collaborative_services.save', data, function(result) {
                 booknetic.toast(result.message || booknetic.__('saved_successfully'), 'success');
             });

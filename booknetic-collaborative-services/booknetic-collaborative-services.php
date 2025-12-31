@@ -147,6 +147,73 @@ final class BookneticCollaborativeServices {
         add_action('admin_footer', [$this, 'enqueue_admin_appointments_list_fallback']);
         add_filter('bkntc_datatable_after_render', [$this, 'modify_appointments_datatable_html'], 10, 2);
         add_action('wp_ajax_bkntc_collab_get_appointment_groups', [$this, 'ajax_get_appointment_groups']);
+
+        // AJAX handler to detect country by IP address
+        add_action('wp_ajax_bkntc_collab_detect_country_by_ip', [$this, 'ajax_detect_country_by_ip']);
+        add_action('wp_ajax_nopriv_bkntc_collab_detect_country_by_ip', [$this, 'ajax_detect_country_by_ip']);
+    }
+
+    /**
+     * AJAX handler to detect country by IP address
+     */
+    public function ajax_detect_country_by_ip() {
+        // Verify nonce for security
+        // if ( ! isset( $_POST['nonce'] ) || ! wp_verify_nonce( $_POST['nonce'], 'booknetic_frontend_nonce' ) ) {
+        //     wp_send_json_error( [ 'message' => 'Invalid nonce' ] );
+        //     wp_die();
+        // }
+
+        // Get user IP address
+        $ip = $this->get_user_ip();
+        if ( ! $ip ) {
+            wp_send_json_error( [ 'message' => 'Unable to detect IP' ] );
+            wp_die();
+        }
+
+        // Get country code
+        $country_code = $this->get_country_code_by_ip( $ip );
+
+        if ( $country_code ) {
+            wp_send_json_success( [ 'country_code' => $country_code ] );
+        } else {
+            wp_send_json_error( [ 'message' => 'Country code not found' ] );
+        }
+
+        wp_die(); // terminate AJAX request properly
+    }
+
+    /**
+     * Get visitor IP
+     */
+    private function get_user_ip() {
+        if ( ! empty( $_SERVER['HTTP_CLIENT_IP'] ) ) {
+            $ip = $_SERVER['HTTP_CLIENT_IP'];
+        } elseif ( ! empty( $_SERVER['HTTP_X_FORWARDED_FOR'] ) ) {
+            $ip = $_SERVER['HTTP_X_FORWARDED_FOR'];
+            // X_FORWARDED_FOR can contain multiple IPs
+            $ip = explode( ',', $ip )[0];
+        } else {
+            $ip = $_SERVER['REMOTE_ADDR'];
+        }
+        return $ip;
+    }
+
+    /**
+     * Get country code by IP using free API
+     */
+    private function get_country_code_by_ip( $ip ) {
+        // Using ipinfo.io API (free, limited requests)
+        $response = wp_remote_get( 'https://ipinfo.io/' . $ip . '/json' );
+        if ( is_wp_error( $response ) ) {
+            return false;
+        }
+
+        $data = json_decode( wp_remote_retrieve_body( $response ), true );
+        if ( isset( $data['country'] ) ) {
+            return $data['country']; // e.g., IN, US
+        }
+
+        return false;
     }
 
     /**
@@ -1089,7 +1156,8 @@ final class BookneticCollaborativeServices {
             echo '  nonce: "' . wp_create_nonce('bkntc_collab_category_nonce') . '",';
             echo '  ajaxurl: "' . admin_url('admin-ajax.php') . '"';
             echo '};';
-            echo 'console.log("bkntcCollabCategory config:", window.bkntcCollabCategory);';
+            echo 'console.log("bkntcCollabCategory config:", window.bkntcCollabCategory);
+";';
             echo '</script>';
             echo '<script type="text/javascript" src="' . esc_url($js_file) . '?v=' . time() . '"></script>';
             echo '<!-- End Collaborative Category Scripts -->';
@@ -1207,6 +1275,15 @@ final class BookneticCollaborativeServices {
                 time(), // Use timestamp for development
                 true
             );
+
+                // Enqueue step-based geolocation information handler
+                wp_enqueue_script(
+                    'bkntc-collab-information-geolocation-step',
+                    BKNTCCS_PLUGIN_URL . 'assets/js/steps/step_information_geolocation.js',
+                    ['jquery', 'bkntc-collab-information-step'],
+                    time(), // Use timestamp for development
+                    true
+                );
 
             // Enqueue step-based confirm handler to display all selected staff
             wp_enqueue_script(

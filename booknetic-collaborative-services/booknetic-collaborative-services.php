@@ -880,7 +880,7 @@ final class BookneticCollaborativeServices {
             'bkntc-collab-category-css',
             $css_file,
             [],
-            '1.0.1'
+            filemtime(BKNTCCS_PLUGIN_DIR . 'assets/css/service-category-collaborative.css')
         );
         
         wp_enqueue_script(

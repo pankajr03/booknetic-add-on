@@ -314,10 +314,29 @@
 
                 staff.forEach(function (staffMember) {
                     var isSelected = combinedStep.selectedStaff[serviceId] && combinedStep.selectedStaff[serviceId].indexOf(staffMember.id) !== -1;
-
-                    html += '<div class="booknetic_staff_card ' + (isSelected ? 'selected' : '') + '" data-staff-id="' + staffMember.id + '" ' +
-                        'style="padding: 15px; border: 2px solid ' + (isSelected ? '#2196F3' : '#e0e0e0') + '; border-radius: 8px; cursor: pointer; text-align: center;">';
-                    html += '<div style="font-weight: 600;">' + staffMember.name + '</div>';
+                    var footerTextOption = typeof window.footerTextOption !== 'undefined' ? window.footerTextOption : '1';
+                    html += '<div class="booknetic_card_collaborative booknetic_staff_card booknetic_fade ' + (isSelected ? 'selected' : '') + '" data-id="' + staffMember.id + '" data-staff-id="' + staffMember.id + '" style="width:100%; cursor:pointer; border:2px solid ' + (isSelected ? '#2196F3' : '#e0e0e0') + ';">';
+                    html += '<div class="booknetic_card_image_collaborative">';
+                    html += '<img class="booknetic_card_staff_image_collaborative" alt="staff-image" src="' + (staffMember.profile_image ? staffMember.profile_image : '/wp-content/plugins/booknetic/app/Frontend/assets/images/empty-staff.svg') + '">';
+                    html += '</div>';
+                    html += '<div class="booknetic_card_title_collaborative">';
+                    html += '<div class="booknetic_card_title_first">' + staffMember.name + '</div>';
+                    html += '<div class="booknetic_card_description_collaborative">';
+                    if (staffMember.profession) {
+                        html += '<div class="booknetic_staff_profession">' + staffMember.profession + '</div>';
+                    }
+                    if (footerTextOption === '1' || footerTextOption === '2') {
+                        if (staffMember.email) {
+                            html += '<div>' + staffMember.email + '</div>';
+                        }
+                    }
+                    if (footerTextOption === '1' || footerTextOption === '3') {
+                        if (staffMember.phone_number) {
+                            html += '<div>' + staffMember.phone_number + '</div>';
+                        }
+                    }
+                    html += '</div>';
+                    html += '</div>';
                     html += '</div>';
                 });
 

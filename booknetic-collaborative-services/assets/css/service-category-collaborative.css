@@ -74,3 +74,58 @@
     flex-wrap: wrap!important;
     overflow-x: hidden!important;
 }
+
+
+.booknetic_card_collaborative {
+    position: relative !important;
+    float: left !important;
+    margin-right: 13px !important;
+    margin-bottom: 13px !important;
+    width: 220px ;
+    background: #FFF ;
+    padding: 25px !important;
+    cursor: pointer !important;
+    display: flex !important;
+    flex-direction: column !important;
+    -webkit-box-shadow: 0 0 30px 0 rgba(0, 0, 0, 0.05) !important;
+    -moz-box-shadow: 0 0 30px 0 rgba(0,0,0,0.05) !important;
+    box-shadow: 0 0 30px 0 rgba(0, 0, 0, 0.05) !important;
+    -webkit-border-radius: 2px;
+    -moz-border-radius: 2px !important;
+    border-radius: 2px !important;
+}
+
+.booknetic_card_image_collaborative {
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    width: 80px !important;
+    height: 80px !important;
+    overflow: hidden !important;
+    -webkit-border-radius: 50% !important;
+    -moz-border-radius: 50% !important;
+    border-radius: 50% !important;
+    margin: 0 auto !important;
+}
+
+.booknetic_card_title_collaborative {
+    margin-top: 11px !important;
+    text-align: center !important;
+    color: #292D32 !important;
+    font-size: 14px;
+    font-weight: 500 !important;
+    word-break: break-word !important;
+    height: 80px !important;
+    line-height: 18px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+}
+
+.booknetic_card_description_collaborative {
+    color: #828F9A !important;
+    font-size: 12px !important;
+    text-align: center !important;
+    font-weight: 400 !important;
+    padding-top: 5px !important;
+}

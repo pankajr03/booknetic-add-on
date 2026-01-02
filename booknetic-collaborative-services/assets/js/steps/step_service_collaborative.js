@@ -1,3 +1,4 @@
+// ...existing code...
 (function ($) {
     'use strict';
 
@@ -613,6 +614,7 @@
                         collaborativeService.isMultiSelectMode = true;
                         console.log('About to convert to multi-select...');
                         convertServiceToMultiSelect(booknetic);
+
                         console.log('Conversion complete');
                     } else {
                         console.log('✗ Service Collaborative: Single-select mode (allow_multi_select =', response.data.allow_multi_select, ')');
@@ -732,21 +734,35 @@
 
             if (!serviceId) return;
 
-            // CRITICAL: Unbind ALL existing click handlers from Booknetic's default behavior
-            card.off('click');
+            // CRITICAL: Completely block Booknetic's click navigation
+            card.off('.bookneticCollabBlock').on(
+                'click.bookneticCollabBlock mousedown.bookneticCollabBlock mouseup.bookneticCollabBlock',
+                function (e) {
+                    // Allow clicks on description toggle
+                    if ($(e.target).closest('.booknetic_service_card_description').length) {
+                        return; // let it work normally
+                    }
+
+                    // Otherwise, block Booknetic navigation
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.stopImmediatePropagation();
+                    return false;
+                }
+            );
 
             var header = card.find('.booknetic_service_card_header');
             var price = header.find('.booknetic_service_card_price');
-            // Add checkbox
+
+            // Add checkbox if not already added
             if (card.find('.booknetic_collab_service_checkbox').length === 0) {
                 var checkboxHtml = '<div class="booknetic_collab_service_checkbox" style="float: right; height: 100%; display: flex; align-items: center; padding-right: 10px; padding-left: 20px;">' +
                     '<input type="checkbox" data-service-id="' + serviceId + '" style="width: 18px; height: 18px; cursor: pointer;">' +
                     '</div>';
                 price.before(checkboxHtml);
-                // card.append(checkboxHtml);
             }
 
-            // Add assignment radio buttons
+            // Add assignment radios if not already added
             if (card.find('.booknetic_collab_assignment').length === 0) {
                 var assignmentHtml = '<div class="booknetic_collab_assignment" style="padding: 10px; margin:10px; border-top: 1px solid #e0e0e0; display: none;">' +
                     '<label style="font-size: 12px; font-weight: 600; display: block; margin-bottom: 5px;">Assign to:</label>' +
@@ -764,62 +780,21 @@
                 card.append(assignmentHtml);
             }
 
-            // Handle checkbox change
-            card.find('.booknetic_collab_service_checkbox input').off('change').on('change', function (e) {
-                e.stopPropagation();
-                e.preventDefault();
-
-                if ($(this).is(':checked')) {
-                    card.addClass('booknetic_card_selected');
-                    card.find('.booknetic_collab_assignment').slideDown(200);
-                } else {
-                    card.removeClass('booknetic_card_selected');
-                    card.find('.booknetic_collab_assignment').slideUp(200);
-                }
-
-                updateSelectedCount(panel);
+            // Prevent checkbox/radio clicks from bubbling
+            card.find('.booknetic_collab_service_checkbox input, .booknetic_collab_assignment input').off('click').on('click', function (e) {
+                e.stopImmediatePropagation();
             });
 
-            // Handle card click to toggle checkbox - use click with capture to intercept before Booknetic
-            card.on('click.collaborative', function (e) {
-                // Check what was clicked first
-                var isCheckbox = $(e.target).is('input[type="checkbox"]');
-                var isRadio = $(e.target).is('input[type="radio"]');
-                var isLabel = $(e.target).is('label');
-
-                // ALWAYS stop Booknetic's default handler from running
-                e.stopImmediatePropagation();
-
-                // Only preventDefault for non-input clicks
-                if (!isCheckbox && !isRadio) {
-                    e.preventDefault();
+            // Handle checkbox changes
+            card.find('.booknetic_collab_service_checkbox input').off('change').on('change', function () {
+                if ($(this).is(':checked')) {
+                    card.addClass('booknetic_collab_selected'); // custom class to prevent Booknetic navigation
+                    card.find('.booknetic_collab_assignment').slideDown(200);
+                } else {
+                    card.removeClass('booknetic_collab_selected');
+                    card.find('.booknetic_collab_assignment').slideUp(200);
                 }
-
-                // Handle clicks on specific elements
-                if (isCheckbox) {
-                    // Checkbox clicked - let it toggle naturally, change event will handle UI
-                    return;
-                }
-
-                if (isRadio) {
-                    // Radio button clicked - let it work naturally
-                    return;
-                }
-
-                if (isLabel) {
-                    // Label clicked - check if it's for a radio button
-                    var labelFor = $(e.target).closest('label').find('input[type="radio"]');
-                    if (labelFor.length > 0) {
-                        labelFor.prop('checked', true);
-                        return;
-                    }
-                }
-
-                // Card background clicked - toggle the checkbox
-                var checkbox = $(this).find('.booknetic_collab_service_checkbox input');
-                checkbox.prop('checked', !checkbox.prop('checked')).trigger('change');
-
-                return false;
+                updateSelectedCount(panel);
             });
         });
 
@@ -832,6 +807,7 @@
         // Add custom styling
         injectMultiSelectStyles();
     }
+
 
     // Update selected count indicator
     function updateSelectedCount(panel) {

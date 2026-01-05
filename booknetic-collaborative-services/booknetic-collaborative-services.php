@@ -61,6 +61,7 @@ final class BookneticCollaborativeServices {
         add_action('wp_ajax_bkntc_collab_get_staff_list', [$this, 'ajax_get_staff_list']);
         add_action('wp_ajax_bkntc_collab_save_category_settings', [$this, 'ajax_save_category_settings']);
         add_action('wp_ajax_bkntc_collab_get_category_settings', [$this, 'ajax_get_category_settings']);
+        add_action('wp_ajax_nopriv_bkntc_collab_get_category_settings', [$this, 'ajax_get_category_settings']);
         
         // Service Collaborative features
     
@@ -90,8 +91,6 @@ final class BookneticCollaborativeServices {
             add_action('wp_enqueue_scripts', [$this, 'enqueue_frontend_booking_assets']);
             add_action('wp_ajax_bkntc_collab_get_frontend_category_rules', [$this, 'ajax_get_frontend_category_rules']);
             add_action('wp_ajax_nopriv_bkntc_collab_get_frontend_category_rules', [$this, 'ajax_get_frontend_category_rules']);
-            add_action('wp_ajax_bkntc_collab_get_category_settings_frontend', [$this, 'ajax_get_category_settings_frontend']);
-            add_action('wp_ajax_nopriv_bkntc_collab_get_category_settings_frontend', [$this, 'ajax_get_category_settings_frontend']);
             add_action('wp_ajax_bkntc_collab_get_service_category', [$this, 'ajax_get_service_category']);
             add_action('wp_ajax_nopriv_bkntc_collab_get_service_category', [$this, 'ajax_get_service_category']);
             
@@ -657,12 +656,44 @@ final class BookneticCollaborativeServices {
     }
     
     public function ajax_get_category_settings() {
-        check_ajax_referer('bkntc_collab_category_nonce', 'nonce');
+        // Check nonce - allow both admin and frontend nonces
+        $nonce_valid = false;
+        if (isset($_POST['nonce'])) {
+            $nonce_valid = wp_verify_nonce($_POST['nonce'], 'bkntc_collab_category_nonce') || wp_verify_nonce($_POST['nonce'], 'booknetic_frontend_nonce') || wp_verify_nonce($_POST['nonce'], 'bkntc_collab_frontend_nonce');
+        }
+        if (!$nonce_valid) {
+            wp_send_json_error(['message' => 'Invalid nonce']);
+            return;
+        }
         
-        if (!current_user_can('manage_options')) {
+        // Permission check - skip for frontend calls
+        if (wp_verify_nonce($_POST['nonce'], 'bkntc_collab_category_nonce') && !current_user_can('manage_options')) {
             wp_send_json_error(['message' => 'Permission denied']);
+            return;
         }
 
+        // Check if category_name is provided (frontend call)
+        $category_name = isset($_POST['category_name']) ? sanitize_text_field($_POST['category_name']) : '';
+        if ($category_name) {
+            global $wpdb;
+            $table = $wpdb->prefix . 'bkntc_service_categories';
+            
+            $category = $wpdb->get_row(
+                $wpdb->prepare(
+                    "SELECT collab_min_staff, collab_max_staff, collab_eligible_staff, guest_info_required, allow_multi_select FROM {$table} WHERE name = %s",
+                    $category_name
+                ),
+                ARRAY_A
+            );
+            
+            wp_send_json_success([
+                'allow_multi_select' => intval($category['allow_multi_select']) ?? 0,
+                'category_name' => $category_name
+            ]);
+            return;
+        }
+
+        // Original admin logic with category_id
         $category_id = isset($_POST['category_id']) ? intval($_POST['category_id']) : 0;
 
         if ($category_id <= 0) {

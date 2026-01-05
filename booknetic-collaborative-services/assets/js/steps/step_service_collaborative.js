@@ -5,8 +5,6 @@
     console.log('════════════════════════════════════════════════════════');
     console.log('═══ Service Collaborative Script Loaded v2.1.0 ═══');
     console.log('════════════════════════════════════════════════════════');
-    console.log('BookneticCollabFrontend available:', typeof BookneticCollabFrontend !== 'undefined');
-    console.log('bookneticHooks available:', typeof bookneticHooks !== 'undefined');
 
     var collaborativeService = {
         categorySettings: null,
@@ -42,6 +40,14 @@
         setTimeout(function () {
             checkCategoryMultiSelect(booknetic);
         }, 200);
+
+        // Listen for category changes (when user clicks on a different category)
+        booknetic.panel_js.on('click', '.booknetic_category_accordion', function () {
+            console.log('Service Collaborative: Category accordion clicked, re-checking multi-select settings');
+            setTimeout(function () {
+                checkCategoryMultiSelect(booknetic);
+            }, 200);
+        });
     });
 
     // Service step validation
@@ -49,37 +55,45 @@
         let booking_panel_js = booknetic.panel_js;
 
         if (!collaborativeService.isMultiSelectMode) {
-            console.log('Service Collaborative: Single-select mode, using default validation');
-            return result;
+            // Single-select mode: Only allow one service selection
+            var selectedCard = booking_panel_js.find('.booknetic_service_card.booknetic_card_selected');
+            if (selectedCard.length === 0) {
+                return {
+                    status: false,
+                    errorMsg: booknetic.__('select_service') || 'Please select a service.'
+                };
+            }
+            var serviceId = selectedCard.data('id');
+            collaborativeService.selectedServices = [{
+                service_id: serviceId,
+                assigned_to: 'me'
+            }];
+            booking_panel_js.data('collaborative-selected-services', collaborativeService.selectedServices);
+            return {
+                status: true,
+                errorMsg: ''
+            };
         }
 
+        // Multi-select mode validation
         console.log('Service Collaborative: Multi-select mode validation');
-
         // Get selected services with assignments
         var selectedServices = [];
         var checkedBoxes = booking_panel_js.find('.booknetic_collab_service_checkbox input:checked');
-
         console.log('Found checked boxes:', checkedBoxes.length);
-
         checkedBoxes.each(function () {
             var serviceId = parseInt($(this).data('service-id'));
             var card = $(this).closest('.booknetic_service_card');
             var assignedTo = card.find('input[name="assign_to_' + serviceId + '"]:checked').val();
-
-            console.log('Service ID:', serviceId, 'Assigned to:', assignedTo);
-
             if (!assignedTo) {
                 assignedTo = 'me'; // Default to "me"
             }
-
             selectedServices.push({
                 service_id: serviceId,
                 assigned_to: assignedTo
             });
         });
-
         console.log('Selected services:', selectedServices);
-
         // Validate selection
         if (selectedServices.length === 0) {
             return {
@@ -87,7 +101,6 @@
                 errorMsg: booknetic.__('select_service') || 'Please select at least one service.'
             };
         }
-
         // Check if assignment is set for all services
         for (var i = 0; i < selectedServices.length; i++) {
             if (!selectedServices[i].assigned_to) {
@@ -97,16 +110,12 @@
                 };
             }
         }
-
         // Store selected services for cart
         collaborativeService.selectedServices = selectedServices;
-
         // Also store in panel data for access by other steps
         booking_panel_js.data('collaborative-selected-services', selectedServices);
-
         console.log('Service validation passed:', selectedServices);
         console.log('Stored in window.collaborativeService and panel data');
-
         return {
             status: true,
             errorMsg: ''
@@ -631,9 +640,9 @@
             url: BookneticCollabFrontend.ajaxurl,
             type: 'POST',
             data: {
-                action: 'bkntc_collab_get_category_settings_frontend',
+                action: 'bkntc_collab_get_category_settings',
                 nonce: BookneticCollabFrontend.nonce,
-                category_id: categoryId
+                category_name: categoryId  // Send category name instead of ID
             },
             success: function (response) {
                 console.log('=== CATEGORY SETTINGS RESPONSE ===');
@@ -669,11 +678,28 @@
                         card.find('.booknetic_collab_service_checkbox').remove();
                         card.find('.booknetic_collab_assignment').remove();
                         card.removeClass('booknetic_collab_selected');
+                        // Add click handler for single-select
+                        card.off('.bookneticCollabBlock').off('click').on('click', function () {
+                            // Remove selection from all cards
+                            serviceCards.removeClass('booknetic_card_selected');
+                            // Add selection to this card
+                            card.addClass('booknetic_card_selected');
+                            // Store selected service
+                            collaborativeService.selectedServices = [{
+                                service_id: card.data('id'),
+                                assigned_to: 'me'
+                            }];
+                        });
                     });
                     // Remove selected count indicator
                     panel.find('.booknetic_collab_count_container').remove();
                     // Remove custom styles
                     $('#booknetic_collab_service_styles').remove();
+                    // Clear selectedServices except the first selected
+                    if (collaborativeService.selectedServices.length > 0) {
+                        var first = collaborativeService.selectedServices[0];
+                        collaborativeService.selectedServices = first ? [first] : [];
+                    }
                 }
             },
             error: function (xhr, status, error) {
@@ -688,6 +714,15 @@
     // Get current category ID from service step
     function getCurrentCategoryId(panel) {
         console.log('>>> Getting category ID...');
+
+        // Method 0: Check active category accordion
+        var activeAccordion = panel.find('.booknetic_category_accordion.active');
+        if (activeAccordion.length > 0) {
+            var innerDiv = activeAccordion.find('.booknetic_service_category');
+            var categoryName = innerDiv.text().trim();
+            console.log('>>> Method 0: Found category name:', categoryName);
+            return categoryName;  // Return category name for per-category settings
+        }
 
         // Method 1: Check booknetic cartArr or data
         if (typeof window.BookneticData !== 'undefined' && window.BookneticData.category_id) {

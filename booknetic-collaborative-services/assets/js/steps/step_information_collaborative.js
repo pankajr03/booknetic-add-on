@@ -67,14 +67,14 @@ function createGuestFields(booknetic, guestServices, guestInfoRequired, guestDat
             guestData[serviceId] = {};
         }
         if (jQuery(this).hasClass('bkntc_collab_guest_name')) {
-            guestData[serviceId].name = $(this).val();
-            console.log('[createGuestFields] Guest for service', serviceId, 'name saved:', $(this).val());
-        } else if ($(this).hasClass('bkntc_collab_guest_email')) {
-            guestData[serviceId].email = $(this).val();
-            console.log('[createGuestFields] Guest for service', serviceId, 'email saved:', $(this).val());
-        } else if ($(this).hasClass('bkntc_collab_guest_phone')) {
-            guestData[serviceId].phone = $(this).val();
-            console.log('[createGuestFields] Guest for service', serviceId, 'phone saved:', $(this).val());
+            guestData[serviceId].name = jQuery(this).val();
+            console.log('[createGuestFields] Guest for service', serviceId, 'name saved:', jQuery(this).val());
+        } else if (jQuery(this).hasClass('bkntc_collab_guest_email')) {
+            guestData[serviceId].email = jQuery(this).val();
+            console.log('[createGuestFields] Guest for service', serviceId, 'email saved:', jQuery(this).val());
+        } else if (jQuery(this).hasClass('bkntc_collab_guest_phone')) {
+            guestData[serviceId].phone = jQuery(this).val();
+            console.log('[createGuestFields] Guest for service', serviceId, 'phone saved:', jQuery(this).val());
         }
     });
     console.log('[createGuestFields] Created', guestServices.length, 'guest information sections');

@@ -32,41 +32,10 @@ final class BookneticCollaborativeServices {
 
     private function __construct() {
         add_action('plugins_loaded', [$this, 'init']);
-        // Fallback: Always output script in admin_footer for Booknetic services module
-        add_action('admin_footer', [$this, 'force_service_script_in_footer'], 99);
-    }
-    /**
-     * Fallback: Directly output service-collaborative.js in admin_footer for Booknetic services module
-     */
-    public function force_service_script_in_footer() {
-        ?>
-        <script type="text/javascript">
-            console.log('[COLLAB] Fallback: Injecting service-collaborative.js via admin_footer');
-        </script>
-        <?php
-        if (!isset($_GET['page']) || $_GET['page'] !== 'booknetic') {
-            return;
-        }
-        // Only for services module
-        if (!isset($_GET['module']) || $_GET['module'] !== 'services') {
-            return;
-        }
-        $script_url = BKNTCCS_PLUGIN_URL . 'assets/js/service-collaborative.js';
-        $ajax_url = admin_url('admin-ajax.php');
-        ?>
-        <script type="text/javascript">
-            console.log('[COLLAB] Fallback: Injecting service-collaborative.js via admin_footer');
-            var bkntcCollabService = {
-                ajaxurl: '<?php echo esc_js($ajax_url); ?>',
-                nonce: '<?php echo wp_create_nonce('bkntc_collab_service_nonce'); ?>'
-            };
-        </script>
-        <script type="text/javascript" src="<?php echo esc_url($script_url); ?>?v=<?php echo time(); ?>"></script>
-        <?php
     }
 
     public function init() {
-        
+         
         if (!class_exists('BookneticApp\Providers\UI\SettingsMenuUI')) {
             add_action('admin_notices', function () {
                 echo '<div class="notice notice-error"><p>Booknetic must be installed and active.</p></div>';
@@ -95,10 +64,10 @@ final class BookneticCollaborativeServices {
         
         // Service Collaborative features
     
-        add_action('admin_enqueue_scripts', [$this, 'enqueue_service_assets']);
-        add_action('admin_print_scripts', [$this, 'inject_service_script']);
-        add_action('admin_print_footer_scripts', [$this, 'inject_service_script']);
-        add_action('admin_head', [$this, 'inject_service_script']);
+        //add_action('admin_enqueue_scripts', [$this, 'enqueue_service_assets']);
+        //add_action('admin_print_scripts', [$this, 'inject_service_script']);
+        //add_action('admin_print_footer_scripts', [$this, 'inject_service_script']);
+        //add_action('admin_head', [$this, 'inject_service_script']);
         add_action('wp_ajax_bkntc_collab_get_service_settings', [$this, 'ajax_get_service_settings']);
         add_action('wp_ajax_bkntc_collab_save_service_collab_fields', [$this, 'ajax_save_service_collab_fields']);
         // Hook into Booknetic service save to persist collab fields
@@ -113,13 +82,20 @@ final class BookneticCollaborativeServices {
         add_action('admin_enqueue_scripts', [$this, 'enqueue_appointment_assets']);
         
         // Frontend booking panel hooks
-        add_action('wp_enqueue_scripts', [$this, 'enqueue_frontend_booking_assets']);
-        add_action('wp_ajax_bkntc_collab_get_frontend_category_rules', [$this, 'ajax_get_frontend_category_rules']);
-        add_action('wp_ajax_nopriv_bkntc_collab_get_frontend_category_rules', [$this, 'ajax_get_frontend_category_rules']);
-        add_action('wp_ajax_bkntc_collab_get_category_settings_frontend', [$this, 'ajax_get_category_settings_frontend']);
-        add_action('wp_ajax_nopriv_bkntc_collab_get_category_settings_frontend', [$this, 'ajax_get_category_settings_frontend']);
-        add_action('wp_ajax_bkntc_collab_get_service_category', [$this, 'ajax_get_service_category']);
-        add_action('wp_ajax_nopriv_bkntc_collab_get_service_category', [$this, 'ajax_get_service_category']);
+        $option = get_option('bkntc_collaborative_services_enabled');
+        if ( $option === 'off' ) {
+            return;
+        } else {
+
+            add_action('wp_enqueue_scripts', [$this, 'enqueue_frontend_booking_assets']);
+            add_action('wp_ajax_bkntc_collab_get_frontend_category_rules', [$this, 'ajax_get_frontend_category_rules']);
+            add_action('wp_ajax_nopriv_bkntc_collab_get_frontend_category_rules', [$this, 'ajax_get_frontend_category_rules']);
+            add_action('wp_ajax_bkntc_collab_get_category_settings_frontend', [$this, 'ajax_get_category_settings_frontend']);
+            add_action('wp_ajax_nopriv_bkntc_collab_get_category_settings_frontend', [$this, 'ajax_get_category_settings_frontend']);
+            add_action('wp_ajax_bkntc_collab_get_service_category', [$this, 'ajax_get_service_category']);
+            add_action('wp_ajax_nopriv_bkntc_collab_get_service_category', [$this, 'ajax_get_service_category']);
+            
+        }
         
         // AJAX handler for getting available staff for datetime
         add_action('wp_ajax_bkntc_collab_get_available_staff', [$this, 'ajax_get_available_staff']);
@@ -620,6 +596,7 @@ final class BookneticCollaborativeServices {
         $min_staff = isset($_POST['min_staff']) ? intval($_POST['min_staff']) : null;
         $max_staff = isset($_POST['max_staff']) ? intval($_POST['max_staff']) : null;
         $eligible_staff = isset($_POST['eligible_staff']) ? array_map('intval', (array)$_POST['eligible_staff']) : null;
+        $guest_info_required = isset($_POST['guest_info_required']) ? intval($_POST['guest_info_required']) : null;
 
         if ($category_id <= 0) {
             wp_send_json_error(['message' => 'Invalid category ID']);
@@ -634,6 +611,10 @@ final class BookneticCollaborativeServices {
         
         if ($allow_multi_select !== null) {
             $update_data['allow_multi_select'] = $allow_multi_select;
+            $update_format[] = '%d';
+        }
+        if ($guest_info_required !== null) {
+            $update_data['guest_info_required'] = $guest_info_required;
             $update_format[] = '%d';
         }
         if ($min_staff !== null) {
@@ -698,7 +679,7 @@ final class BookneticCollaborativeServices {
         
         $category = $wpdb->get_row(
             $wpdb->prepare(
-                "SELECT collab_min_staff, collab_max_staff, collab_eligible_staff FROM {$table} WHERE id = %d",
+                "SELECT collab_min_staff, collab_max_staff, collab_eligible_staff, guest_info_required, allow_multi_select FROM {$table} WHERE id = %d",
                 $category_id
             ),
             ARRAY_A
@@ -708,12 +689,16 @@ final class BookneticCollaborativeServices {
             $settings = [
                 'min_staff' => intval($category['collab_min_staff']),
                 'max_staff' => intval($category['collab_max_staff']),
+                'guest_info_required' => intval($category['guest_info_required']),
+                'allow_multi_select' => intval($category['allow_multi_select']),
                 'eligible_staff' => $category['collab_eligible_staff'] ? json_decode($category['collab_eligible_staff'], true) : []
             ];
         } else {
             $settings = [
                 'min_staff' => 0,
                 'max_staff' => 0,
+                'guest_info_required' => 0,
+                'allow_multi_select' => 0,
                 'eligible_staff' => []
             ];
         }
@@ -891,10 +876,14 @@ final class BookneticCollaborativeServices {
             true
         );
         
-        wp_localize_script('bkntc-collab-category-js', 'bkntcCollabCategory', [
-            'nonce' => wp_create_nonce('bkntc_collab_category_nonce'),
-            'ajaxurl' => admin_url('admin-ajax.php')
-        ]);
+        wp_localize_script(
+            'service-category-collaborative',
+            'bkntcCollabCategory',
+            [
+                'ajaxurl' => admin_url('admin-ajax.php'),
+                'nonce'   => wp_create_nonce('bkntc_collab_nonce')
+            ]
+        );
         
         // Add inline script to verify loading
         wp_add_inline_script('bkntc-collab-category-js', 
@@ -1081,14 +1070,14 @@ final class BookneticCollaborativeServices {
             
             // Get and sanitize settings
             $collaborative_enabled = isset($_POST['collaborative_enabled']) ? sanitize_text_field($_POST['collaborative_enabled']) : 'off';
-            $guest_info_required = isset($_POST['guest_info_required']) ? sanitize_text_field($_POST['guest_info_required']) : 'optional';
+            $enable_ip_geolocation = isset($_POST['enable_ip_geolocation']) ? sanitize_text_field($_POST['enable_ip_geolocation']) : 'off';
 
             // Save settings
             update_option('bkntc_collaborative_services_enabled', $collaborative_enabled);
-            update_option('bkntc_collaborative_guest_info_required', $guest_info_required);
+            update_option('bkntc_collaborative_enable_ip_geolocation', $enable_ip_geolocation);
 
             if (function_exists('bkntc_cs_log')) {
-                bkntc_cs_log('maybe_handle_booknetic_ajax: saved - enabled=' . $collaborative_enabled . ' guest_info=' . $guest_info_required);
+                bkntc_cs_log('maybe_handle_booknetic_ajax: saved - enabled=' . $collaborative_enabled . ' guest_info=' . $enable_ip_geolocation);
             }
 
             echo json_encode(['status' => 'ok', 'message' => bkntc__('Settings saved successfully')]);
@@ -1156,8 +1145,7 @@ final class BookneticCollaborativeServices {
             echo '  nonce: "' . wp_create_nonce('bkntc_collab_category_nonce') . '",';
             echo '  ajaxurl: "' . admin_url('admin-ajax.php') . '"';
             echo '};';
-            echo 'console.log("bkntcCollabCategory config:", window.bkntcCollabCategory);
-";';
+            //echo 'console.log("bkntcCollabCategory config:", window.bkntcCollabCategory)";';
             echo '</script>';
             echo '<script type="text/javascript" src="' . esc_url($js_file) . '?v=' . time() . '"></script>';
             echo '<!-- End Collaborative Category Scripts -->';
@@ -1209,6 +1197,7 @@ final class BookneticCollaborativeServices {
     }
 
     public function enqueue_frontend_booking_assets() {
+        
         // Load on all frontend pages (Booknetic can be loaded via shortcode, popup, iframe, etc.)
         if (!is_admin()) {
             
@@ -1275,7 +1264,8 @@ final class BookneticCollaborativeServices {
                 time(), // Use timestamp for development
                 true
             );
-
+            $enable_ip_geolocation = get_option('bkntc_collaborative_enable_ip_geolocation', 'off');
+            if ( $enable_ip_geolocation === 'on' ) {
                 // Enqueue step-based geolocation information handler
                 wp_enqueue_script(
                     'bkntc-collab-information-geolocation-step',
@@ -1284,6 +1274,7 @@ final class BookneticCollaborativeServices {
                     time(), // Use timestamp for development
                     true
                 );
+            }
 
             // Enqueue step-based confirm handler to display all selected staff
             wp_enqueue_script(
@@ -1392,16 +1383,16 @@ final class BookneticCollaborativeServices {
             wp_send_json_error(['message' => 'Invalid nonce']);
             return;
         }
-        
+
         $category_id = isset($_POST['category_id']) ? intval($_POST['category_id']) : 0;
-        
+
         if (!$category_id) {
             wp_send_json_error(['message' => 'Category ID required']);
             return;
         }
-        
+
         global $wpdb;
-        
+
         // Get category settings including allow_multi_select
         $categories_table = $wpdb->prefix . 'bkntc_service_categories';
         $category_data = $wpdb->get_row($wpdb->prepare(
@@ -1409,26 +1400,29 @@ final class BookneticCollaborativeServices {
              FROM {$categories_table} WHERE id = %d",
             $category_id
         ), ARRAY_A);
-        
+
+        $response = [
+            'min_staff' => 0,
+            'max_staff' => 0,
+            'eligible_staff' => [],
+            'allow_multi_select' => 0,
+            'category_id' => $category_id
+        ];
         if ($category_data) {
-            wp_send_json_success([
-                'min_staff' => !empty($category_data['collab_min_staff']) ? intval($category_data['collab_min_staff']) : 0,
-                'max_staff' => !empty($category_data['collab_max_staff']) ? intval($category_data['collab_max_staff']) : 0,
-                'eligible_staff' => !empty($category_data['collab_eligible_staff']) 
-                    ? json_decode($category_data['collab_eligible_staff'], true) 
-                    : [],
-                'allow_multi_select' => !empty($category_data['allow_multi_select']) ? intval($category_data['allow_multi_select']) : 0,
-                'category_id' => $category_id
-            ]);
-        } else {
-            wp_send_json_success([
-                'min_staff' => 0,
-                'max_staff' => 0,
-                'eligible_staff' => [],
-                'allow_multi_select' => 0,
-                'category_id' => $category_id
-            ]);
+            if (isset($category_data['collab_min_staff'])) {
+                $response['min_staff'] = intval($category_data['collab_min_staff']);
+            }
+            if (isset($category_data['collab_max_staff'])) {
+                $response['max_staff'] = intval($category_data['collab_max_staff']);
+            }
+            if (!empty($category_data['collab_eligible_staff'])) {
+                $response['eligible_staff'] = json_decode($category_data['collab_eligible_staff'], true);
+            }
+            if (isset($category_data['allow_multi_select'])) {
+                $response['allow_multi_select'] = intval($category_data['allow_multi_select']);
+            }
         }
+        wp_send_json_success($response);
     }
     
     public function ajax_get_available_staff() {
@@ -1777,6 +1771,12 @@ final class BookneticCollaborativeServices {
         $multi_select_column = $wpdb->get_results("SHOW COLUMNS FROM {$categories_table} LIKE 'allow_multi_select'");
         if (empty($multi_select_column)) {
             $wpdb->query("ALTER TABLE {$categories_table} ADD COLUMN allow_multi_select TINYINT(1) DEFAULT 0");
+        }
+
+        // Add guest_info_required if missing
+        $guest_info_required = $wpdb->get_results("SHOW COLUMNS FROM {$categories_table} LIKE 'guest_info_required'");
+        if (empty($guest_info_required)) {
+            $wpdb->query("ALTER TABLE {$categories_table} ADD COLUMN guest_info_required TINYINT(1) DEFAULT 0");
         }
         
         // Add columns to services table

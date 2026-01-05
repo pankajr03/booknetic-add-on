@@ -4,3 +4,4 @@
 
 ALTER TABLE `wp_bkntc_service_categories` 
   ADD COLUMN IF NOT EXISTS `allow_multi_select` TINYINT(1) DEFAULT 0;
+  ADD COLUMN IF NOT EXISTS `guest_fields_required` TINYINT(1) DEFAULT 0;

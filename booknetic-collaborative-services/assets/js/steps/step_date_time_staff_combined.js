@@ -73,12 +73,17 @@
             return;
         }
 
+        // Prevent Booknetic from auto-advancing to next step in multi-service mode
+        if (typeof booknetic.stepManager !== 'undefined' && typeof booknetic.stepManager.next === 'function') {
+            booknetic.stepManager.next = function () { return false; };
+        }
+
         console.log('Combined Step: Time selected via Booknetic hook', date, time);
 
         combinedStep.selectedDateTime = { date: date, time: time };
         combinedStep.dateTimeSelected = true;
 
-        // Load staff for this datetime
+        // Show staff selection for all services
         loadStaffForAllServices(booknetic);
     }, 10);
 
@@ -101,7 +106,7 @@
         // Check staff for all services
         for (var i = 0; i < combinedStep.selectedServices.length; i++) {
             var serviceId = combinedStep.selectedServices[i].service_id;
-            if (!combinedStep.selectedStaff[serviceId] || combinedStep.selectedStaff[serviceId].length === 0) {
+            if (!combinedStep.selectedStaff[serviceId]) {
                 return {
                     status: false,
                     errorMsg: 'Please select staff for all services.'
@@ -249,7 +254,7 @@
 
         console.log('Combined Step: Loading staff for all services');
 
-        staffSection.slideDown(300);
+        staffSection.show();
         staffContent.html('<div style="text-align: center; padding: 40px;"><div class="booknetic_loading_icon"></div><p>Loading available staff...</p></div>');
 
         var promises = [];
@@ -299,23 +304,39 @@
 
         var html = '<div class="booknetic_combined_staff_list">';
 
-        combinedStep.selectedServices.forEach(function (serviceItem) {
+        // Track selected staff across services
+        var globallySelectedStaff = [];
+        // To ensure order, process services in order and exclude already selected staff
+        combinedStep.selectedServices.forEach(function (serviceItem, idx) {
             var serviceId = serviceItem.service_id;
             var staff = combinedStep.availableStaff[serviceId] || [];
             var serviceName = 'Service #' + serviceId;
 
+            // Exclude staff already selected for previous services
+            var filteredStaff = staff.filter(function (staffMember) {
+                // Only exclude if selected for another service (not this one)
+                for (var sid in combinedStep.selectedStaff) {
+                    if (parseInt(sid) !== serviceId && Number(combinedStep.selectedStaff[sid]) === Number(staffMember.id)) {
+                        return false;
+                    }
+                }
+                return true;
+            });
+
             html += '<div class="booknetic_service_staff_group" style="margin-bottom: 30px; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;" data-service-id="' + serviceId + '">';
             html += '<p style="margin: 0 0 15px 0;">' + serviceName + '</p>';
 
-            if (staff.length === 0) {
+            if (filteredStaff.length === 0) {
                 html += '<p style="color: #f44336;">No staff available</p>';
             } else {
                 html += '<div class="booknetic_staff_cards" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 15px;">';
 
-                staff.forEach(function (staffMember) {
-                    var isSelected = combinedStep.selectedStaff[serviceId] && combinedStep.selectedStaff[serviceId].indexOf(staffMember.id) !== -1;
+                filteredStaff.forEach(function (staffMember) {
+                    var isSelected = Number(combinedStep.selectedStaff[serviceId]) === Number(staffMember.id);
+                    console.log('Combined Step: Rendering staff', staffMember.id, 'Selected:', isSelected);
+
                     var footerTextOption = typeof window.footerTextOption !== 'undefined' ? window.footerTextOption : '1';
-                    html += '<div class="booknetic_card_collaborative booknetic_staff_card booknetic_fade ' + (isSelected ? 'selected' : '') + '" data-id="' + staffMember.id + '" data-staff-id="' + staffMember.id + '" style="width:100%; cursor:pointer; border:2px solid ' + (isSelected ? '#2196F3' : '#e0e0e0') + ';">';
+                    html += '<div class="booknetic_card_collaborative booknetic_staff_card booknetic_fade' + (isSelected ? ' selected' : '') + '" data-id="' + staffMember.id + '" data-staff-id="' + staffMember.id + '" style="width:100%; cursor:pointer; border:' + (isSelected ? '4px solid #1976D2' : '2px solid #e0e0e0') + '; box-shadow:' + (isSelected ? '0 0 0 2px #1976D2' : 'none') + ';">';
                     html += '<div class="booknetic_card_image_collaborative">';
                     html += '<img class="booknetic_card_staff_image_collaborative" alt="staff-image" src="' + (staffMember.profile_image ? staffMember.profile_image : '/wp-content/plugins/booknetic/app/Frontend/assets/images/empty-staff.svg') + '">';
                     html += '</div>';
@@ -349,26 +370,50 @@
         html += '</div>';
         staffContent.html(html);
 
-        // Handle staff selection
-        panel.on('click', '.booknetic_staff_card', function () {
+        // Remove previous click handlers to avoid duplicates
+
+        staffContent.off('click.staff_card');
+
+        staffContent.on('click.staff_card', '.booknetic_staff_card', function () {
             var staffId = parseInt($(this).data('staff-id'));
             var serviceId = parseInt($(this).closest('.booknetic_service_staff_group').data('service-id'));
 
-            if (!combinedStep.selectedStaff[serviceId]) {
-                combinedStep.selectedStaff[serviceId] = [];
+            console.log('Selecting staff', staffId, 'for service', serviceId);
+
+            // 🔹 Remove this staff from any other service
+            for (var sid in combinedStep.selectedStaff) {
+                if (Number(combinedStep.selectedStaff[sid]) === staffId) {
+                    delete combinedStep.selectedStaff[sid];
+                }
             }
 
-            var index = combinedStep.selectedStaff[serviceId].indexOf(staffId);
-            if (index === -1) {
-                combinedStep.selectedStaff[serviceId].push(staffId);
-                $(this).addClass('selected').css('border-color', '#2196F3');
-            } else {
-                combinedStep.selectedStaff[serviceId].splice(index, 1);
-                $(this).removeClass('selected').css('border-color', '#e0e0e0');
+            // 🔹 Assign staff to this service (SINGLE VALUE)
+            combinedStep.selectedStaff[serviceId] = staffId;
+
+            // 🔹 Save globally for cart
+            window.collaborativeService = window.collaborativeService || {};
+            window.collaborativeService.selectedStaff = combinedStep.selectedStaff;
+
+            if (booknetic.panel_js && typeof booknetic.panel_js.data === 'function') {
+                booknetic.panel_js.data('collab-selected-staff', combinedStep.selectedStaff);
             }
 
-            console.log('Combined Step: Staff selection updated', combinedStep.selectedStaff);
+            console.log('✅ Final staff mapping:', combinedStep.selectedStaff);
+
+            // 🔹 Update cart staff values immediately if cart is already expanded
+            if (window.booknetic && window.booknetic.cartArr && window.booknetic.cartArr.length > 1) {
+                window.booknetic.cartArr.forEach(function (item) {
+                    if (item && item.is_collaborative_booking && item.service && combinedStep.selectedStaff[item.service]) {
+                        item.staff = combinedStep.selectedStaff[item.service];
+                    }
+                });
+                console.log('✅ Cart staff values updated after staff selection');
+            }
+
+            // 🔹 Re-render to update UI & exclusions
+            renderStaffSelection(booknetic);
         });
+
     }
 
 })(jQuery);

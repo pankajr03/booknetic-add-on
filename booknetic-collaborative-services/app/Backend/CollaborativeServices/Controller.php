@@ -36,11 +36,11 @@ class Controller {
 
         // Get and sanitize settings
         $collaborative_enabled = isset($_POST['collaborative_enabled']) ? sanitize_text_field($_POST['collaborative_enabled']) : 'off';
-        $guest_info_required = isset($_POST['guest_info_required']) ? sanitize_text_field($_POST['guest_info_required']) : 'optional';
+        $enable_ip_geolocation = isset($_POST['enable_ip_geolocation']) ? sanitize_text_field($_POST['guest_info_required']) : 'optional';
 
         // Save individual settings
         update_option('bkntc_collaborative_services_enabled', $collaborative_enabled);
-        update_option('bkntc_collaborative_guest_info_required', $guest_info_required);
+        update_option('bkntc_collaborative_enable_ip_geolocation', $enable_ip_geolocation);
 
         if (function_exists('bkntc_cs_log')) {
             bkntc_cs_log('Controller::save saved - enabled=' . $collaborative_enabled . ' guest_info=' . $guest_info_required);
@@ -48,7 +48,7 @@ class Controller {
 
         // Return success response
         return response(true, [
-            'message' => bkntc__('Settings saved successfully!')
+            'message' => bkntc__('Settings saved successfully PANKAJ!')
         ]);
     }
 

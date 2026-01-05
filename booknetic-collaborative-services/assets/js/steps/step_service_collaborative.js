@@ -258,9 +258,11 @@
         console.log('🔍 Customer name field:', currentCartItem.name);
         console.log('🔍 Customer phone field:', currentCartItem.phone);
 
-        // Get guest data if available
+        // Get guest data from the most up-to-date source
         var guestData = {};
-        if (currentCartItem.guest_data) {
+        if (booknetic.panel_js && typeof booknetic.panel_js.data === 'function' && booknetic.panel_js.data('collab-guest-data')) {
+            guestData = booknetic.panel_js.data('collab-guest-data');
+        } else if (currentCartItem.guest_data) {
             guestData = currentCartItem.guest_data;
         } else if (window.BookneticCollaborativeInformation && typeof window.BookneticCollaborativeInformation.getGuestData === 'function') {
             guestData = window.BookneticCollaborativeInformation.getGuestData();
@@ -319,9 +321,26 @@
                 newItem.time = originalItem.time;
             }
 
-            // Ensure staff ID is set (can be -1 for "any staff")
-            if (newItem.staff === undefined || newItem.staff === null) {
-                newItem.staff = originalItem.staff || -1;
+            // Ensure staff ID is set for each service from the most up-to-date mapping
+            var staffMap = null;
+            if (typeof window.combinedStep !== 'undefined' && window.combinedStep.selectedStaff) {
+                staffMap = window.combinedStep.selectedStaff;
+            } else if (booknetic.panel_js && typeof booknetic.panel_js.data === 'function' && booknetic.panel_js.data('collab-selected-staff')) {
+                staffMap = booknetic.panel_js.data('collab-selected-staff');
+            }
+            if (staffMap && staffMap.hasOwnProperty(service.service_id)) {
+                var staffId = staffMap[service.service_id];
+
+                if (typeof staffId === 'number' && staffId > 0) {
+                    newItem.staff = staffId;
+                    console.log('✓ Assigned staff', staffId, 'to service', service.service_id);
+                } else {
+                    newItem.staff = null;
+                    console.log('⚠️ Invalid staff for service', service.service_id);
+                }
+            } else {
+                newItem.staff = null;
+                console.log('⚠️ No staff mapping found for service', service.service_id);
             }
 
             // Ensure location is set
@@ -407,37 +426,40 @@
             if (service.assigned_to === 'guest') {
                 console.log('🎭 Service ' + service.service_id + ' assigned to guest');
 
-                if (guestData[service.service_id]) {
-                    // Guest data exists, use it for this service's customer_data
-                    var guestInfo = guestData[service.service_id];
-                    console.log('✓ Found guest data for service ' + service.service_id + ':', guestInfo);
-
-                    // Overwrite customer_data with guest information
+                var guestInfo = guestData[service.service_id];
+                if (guestInfo && (guestInfo.name || guestInfo.email || guestInfo.phone)) {
+                    // Use actual guest data
                     newItem.customer_data = {
                         email: guestInfo.email || '',
                         first_name: guestInfo.name ? guestInfo.name.split(' ')[0] : '',
                         last_name: guestInfo.name ? guestInfo.name.split(' ').slice(1).join(' ') : '',
                         phone: guestInfo.phone || ''
                     };
-
-                    // Also set at root level
                     newItem.email = guestInfo.email || '';
                     newItem.first_name = newItem.customer_data.first_name;
                     newItem.last_name = newItem.customer_data.last_name;
                     newItem.name = guestInfo.name || '';
                     newItem.phone = guestInfo.phone || '';
-
+                    newItem.guest_info = {
+                        name: guestInfo.name || '',
+                        email: guestInfo.email || '',
+                        phone: guestInfo.phone || '',
+                        service_id: service.service_id
+                    };
                     console.log('✓ Applied guest customer_data for service ' + service.service_id + ':', newItem.customer_data);
-
-                    // Also keep guest_info for reference
-                    newItem.guest_info = guestInfo;
-                    newItem.guest_info.service_id = service.service_id;
                 } else {
                     // No guest data, use main customer data as fallback
                     console.log('⚠️ No guest data found for service ' + service.service_id + ', using main customer data as fallback');
+                    newItem.guest_info = {
+                        name: newItem.name || '',
+                        email: newItem.email || '',
+                        phone: newItem.phone || '',
+                        service_id: service.service_id
+                    };
                 }
             } else {
                 console.log('👤 Service ' + service.service_id + ' assigned to main customer (Me), using main customer data');
+                newItem.guest_info = null;
             }
 
             // Keep selected_services for reference but mark as expanded
@@ -532,6 +554,7 @@
             }
         }
 
+
         // Check if this is a collaborative booking with multiple cart items
         if (booknetic.cartArr && booknetic.cartArr.length > 0) {
             var hasCollaborative = booknetic.cartArr.some(function (item) {
@@ -539,6 +562,20 @@
             });
 
             if (hasCollaborative) {
+                // Force update of staff values from latest mapping before serializing
+                var staffMap = null;
+                if (typeof window.combinedStep !== 'undefined' && window.combinedStep.selectedStaff) {
+                    staffMap = window.combinedStep.selectedStaff;
+                } else if (booknetic.panel_js && typeof booknetic.panel_js.data === 'function' && booknetic.panel_js.data('collab-selected-staff')) {
+                    staffMap = booknetic.panel_js.data('collab-selected-staff');
+                }
+                if (staffMap) {
+                    booknetic.cartArr.forEach(function (item) {
+                        if (item && item.is_collaborative_booking && item.service && staffMap[item.service]) {
+                            item.staff = staffMap[item.service];
+                        }
+                    });
+                }
                 console.log('=== INTERCEPTING AJAX DATA FOR COLLABORATIVE BOOKING ===');
                 console.log('Cart items count:', booknetic.cartArr.length);
                 console.log('Current index:', booknetic.cartCurrentIndex);
@@ -606,22 +643,37 @@
 
                 if (response.success && response.data) {
                     collaborativeService.categorySettings = response.data;
-                    console.log('allow_multi_select value:', response.data.allow_multi_select);
-                    console.log('allow_multi_select == 1:', response.data.allow_multi_select == 1);
-
-                    if (response.data.allow_multi_select == 1) {
+                    var allowMulti = response.data.allow_multi_select == 1;
+                    collaborativeService.isMultiSelectMode = allowMulti;
+                    if (allowMulti) {
                         console.log('✓ Service Collaborative: Multi-select ENABLED for category', categoryId);
-                        collaborativeService.isMultiSelectMode = true;
-                        console.log('About to convert to multi-select...');
                         convertServiceToMultiSelect(booknetic);
-
                         console.log('Conversion complete');
                     } else {
                         console.log('✗ Service Collaborative: Single-select mode (allow_multi_select =', response.data.allow_multi_select, ')');
-                        collaborativeService.isMultiSelectMode = false;
+                        // Remove multi-select UI if present
+                        revertServiceToSingleSelect(booknetic);
                     }
                 } else {
                     console.error('Invalid response structure:', response);
+                }
+                // Revert service cards to single-select UI
+                function revertServiceToSingleSelect(booknetic) {
+                    let panel = booknetic.panel_js;
+                    var serviceCards = panel.find('.booknetic_service_card');
+                    // Remove multi-select hint
+                    panel.find('.booknetic_collab_hint').remove();
+                    // Remove checkboxes and assignment radios
+                    serviceCards.each(function () {
+                        var card = $(this);
+                        card.find('.booknetic_collab_service_checkbox').remove();
+                        card.find('.booknetic_collab_assignment').remove();
+                        card.removeClass('booknetic_collab_selected');
+                    });
+                    // Remove selected count indicator
+                    panel.find('.booknetic_collab_count_container').remove();
+                    // Remove custom styles
+                    $('#booknetic_collab_service_styles').remove();
                 }
             },
             error: function (xhr, status, error) {

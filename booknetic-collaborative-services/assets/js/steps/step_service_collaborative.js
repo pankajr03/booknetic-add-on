@@ -132,6 +132,33 @@
                 };
             }
         }
+        // Check service selection limit if set
+        if (collaborativeService.categorySettings && collaborativeService.categorySettings.service_selection_limit > 0) {
+            if (selectedServices.length !== collaborativeService.categorySettings.service_selection_limit) {
+                return {
+                    status: false,
+                    errorMsg: 'Please select exactly ' + collaborativeService.categorySettings.service_selection_limit + ' service(s).'
+                };
+            }
+            // Special validation for limit = 2: exactly one "me" and one "guest"
+            if (collaborativeService.categorySettings.service_selection_limit === 2) {
+                var meCount = 0;
+                var guestCount = 0;
+                for (var i = 0; i < selectedServices.length; i++) {
+                    if (selectedServices[i].assigned_to === 'me') {
+                        meCount++;
+                    } else if (selectedServices[i].assigned_to === 'guest') {
+                        guestCount++;
+                    }
+                }
+                if (meCount !== 1 || guestCount !== 1) {
+                    return {
+                        status: false,
+                        errorMsg: 'For this booking, please assign exactly one service to "Me" and one service to "Guest".'
+                    };
+                }
+            }
+        }
         // Store selected services for cart
         collaborativeService.selectedServices = selectedServices;
         // Also store in panel data for access by other steps
@@ -857,10 +884,20 @@
         }
 
         // Add hint text
-        var hintHtml = '<div class="booknetic_collab_hint" style="background: #e3f2fd; padding: 12px; margin-bottom: 15px; border-left: 4px solid #2196F3; border-radius: 4px;">' +
-            '<strong style="color: #1976d2;">Multi-Service Booking:</strong> ' +
-            'Select multiple services and assign each to "Me" or "Guest".' +
-            '</div>';
+        var hintHtml = '<div class="booknetic_collab_hint" style="background: #e3f2fd; padding: 12px; margin-bottom: 15px; border-left: 4px solid #2196F3; border-radius: 4px;">';
+
+        var limit = collaborativeService.categorySettings.service_selection_limit || 0;
+        if (limit > 0) {
+            if (limit === 2) {
+                hintHtml += '<strong style="color: #1976d2;">Multi-Service Booking:</strong> Select exactly 2 services - assign one to "Me" and one to "Guest".';
+            } else {
+                hintHtml += '<strong style="color: #1976d2;">Multi-Service Booking:</strong> Select exactly ' + limit + ' services and assign each to "Me" or "Guest".';
+            }
+        } else {
+            hintHtml += '<strong style="color: #1976d2;">Multi-Service Booking:</strong> Select multiple services and assign each to "Me" or "Guest".';
+        }
+
+        hintHtml += '</div>';
 
         panel.find('.booknetic_services_container').before(hintHtml);
 
@@ -924,7 +961,22 @@
 
             // Handle checkbox changes
             card.find('.booknetic_collab_service_checkbox input').off('change').on('change', function () {
-                if ($(this).is(':checked')) {
+                var checkbox = $(this);
+                var isChecked = checkbox.is(':checked');
+                var currentCount = panel.find('.booknetic_collab_service_checkbox input:checked').length;
+
+                // Check service selection limit
+                if (collaborativeService.categorySettings && collaborativeService.categorySettings.service_selection_limit > 0) {
+                    var limit = collaborativeService.categorySettings.service_selection_limit;
+                    if (isChecked && currentCount > limit) {
+                        // Prevent checking if it would exceed the limit
+                        checkbox.prop('checked', false);
+                        booknetic.toast('You can select a maximum of ' + limit + ' service(s).', 'warning');
+                        return;
+                    }
+                }
+
+                if (isChecked) {
                     card.addClass('booknetic_collab_selected'); // custom class to prevent Booknetic navigation
                     card.find('.booknetic_collab_assignment').slideDown(200);
                 } else {
@@ -949,7 +1001,15 @@
     // Update selected count indicator
     function updateSelectedCount(panel) {
         var count = panel.find('.booknetic_collab_service_checkbox input:checked').length;
-        panel.find('.booknetic_collab_count').text(count + ' selected');
+        var countText = count + ' selected';
+
+        // Add limit info if set
+        if (collaborativeService.categorySettings && collaborativeService.categorySettings.service_selection_limit > 0) {
+            var limit = collaborativeService.categorySettings.service_selection_limit;
+            countText += ' (limit: ' + limit + ')';
+        }
+
+        panel.find('.booknetic_collab_count').text(countText);
     }
 
     // Add selected count indicator

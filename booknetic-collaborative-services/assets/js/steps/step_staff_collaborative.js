@@ -1,4 +1,4 @@
-(function($) {
+(function ($) {
     'use strict';
 
     var collaborativeStaff = {
@@ -7,11 +7,11 @@
     };
 
     // Hook after booking panel loads - attach event handlers
-    bookneticHooks.addAction('booking_panel_loaded', function(booknetic) {
+    bookneticHooks.addAction('booking_panel_loaded', function (booknetic) {
         let booking_panel_js = booknetic.panel_js;
 
         // Watch for service selection to fetch category rules
-        booking_panel_js.on('click', '.booknetic_service_card', function() {
+        booking_panel_js.on('click', '.booknetic_service_card', function () {
             var serviceId = $(this).data('id');
             if (serviceId) {
                 console.log('Service selected:', serviceId);
@@ -20,7 +20,7 @@
         });
 
         // Check if service is already selected (e.g., from URL params)
-        setTimeout(function() {
+        setTimeout(function () {
             var currentService = booknetic.getSelected.service();
             if (currentService > 0) {
                 console.log('Service already selected on load:', currentService);
@@ -30,31 +30,38 @@
     });
 
     // Before staff step loads - call standard step loader
-    bookneticHooks.addAction('before_step_loading', function(booknetic, new_step_id, old_step_id) {
+    bookneticHooks.addAction('before_step_loading', function (booknetic, new_step_id, old_step_id) {
         if (new_step_id !== 'staff')
             return;
 
         booknetic.stepManager.loadStandartSteps(new_step_id, old_step_id);
     });
 
-    // After staff step loads - convert to multi-select
-    bookneticHooks.addAction('loaded_step', function(booknetic, new_step_id) {
+    // After staff step loads - convert to multi-select if enabled
+    bookneticHooks.addAction('loaded_step', function (booknetic, new_step_id) {
         if (new_step_id !== 'staff')
             return;
 
-        console.log('Staff step loaded, converting to multi-select');
-        setTimeout(function() {
-            convertStaffToMultiSelect(booknetic);
-        }, 100);
+        console.log('Staff step loaded');
+
+        // Check if multi-select is enabled for the current category
+        if (window.collaborativeService && window.collaborativeService.isMultiSelectMode) {
+            console.log('Multi-select enabled, converting to multi-select');
+            setTimeout(function () {
+                convertStaffToMultiSelect(booknetic);
+            }, 100);
+        } else {
+            console.log('Single select mode, using standard staff step');
+        }
     });
 
     // Staff step validation - check min/max rules
-    bookneticHooks.addFilter('step_validation_staff', function(result, booknetic) {
+    bookneticHooks.addFilter('step_validation_staff', function (result, booknetic) {
         let booking_panel_js = booknetic.panel_js;
 
         // Get selected staff
         var selectedStaff = [];
-        booking_panel_js.find('.booknetic_collab_checkbox input:checked').each(function() {
+        booking_panel_js.find('.booknetic_collab_checkbox input:checked').each(function () {
             selectedStaff.push(parseInt($(this).data('staff-id')));
         });
 
@@ -96,7 +103,7 @@
     });
 
     // Hook to save selected staff array to cart instead of single staff ID
-    bookneticHooks.addFilter('bkntc_cart', function(cartItem, booknetic) {
+    bookneticHooks.addFilter('bkntc_cart', function (cartItem, booknetic) {
         if (collaborativeStaff.selectedStaff && collaborativeStaff.selectedStaff.length > 0) {
             // Store all selected staff as an array
             cartItem['collaborative_staff'] = collaborativeStaff.selectedStaff;
@@ -115,7 +122,7 @@
                 nonce: BookneticCollabFrontend.nonce,
                 service_id: service_id
             },
-            success: function(response) {
+            success: function (response) {
                 console.log('Category rules response:', response);
                 if (response.success && response.data) {
                     collaborativeStaff.categoryRules = response.data;
@@ -124,7 +131,7 @@
                     collaborativeStaff.categoryRules = null;
                 }
             },
-            error: function(xhr, status, error) {
+            error: function (xhr, status, error) {
                 console.error('Failed to fetch category rules:', error);
                 collaborativeStaff.categoryRules = null;
             }
@@ -149,7 +156,7 @@
         }
 
         // Add multi-select indicator to cards
-        staffCards.each(function() {
+        staffCards.each(function () {
             var card = $(this);
             var staffId = card.data('id');
 
@@ -166,19 +173,19 @@
 
         // Add hint text about min/max requirements
         var hintHtml = '<div class="booknetic_collab_staff_hint" style="padding: 15px; margin: 15px 0; background: #f0f7ff; border-left: 4px solid #2196F3; border-radius: 4px;">';
-        
+
         if (collaborativeStaff.categoryRules && collaborativeStaff.categoryRules.min && collaborativeStaff.categoryRules.max) {
             hintHtml += '<strong>Multi-Staff Booking:</strong> Select between ' + collaborativeStaff.categoryRules.min + ' and ' + collaborativeStaff.categoryRules.max + ' staff members.';
         } else {
             hintHtml += '<strong>Multi-Staff Booking:</strong> You can select multiple staff members for this service.';
         }
-        
+
         hintHtml += '</div>';
 
         panel.find('.booknetic_card_container').before(hintHtml);
 
         // Override click behavior for multi-select
-        staffCards.off('click').on('click', function(e) {
+        staffCards.off('click').on('click', function (e) {
             e.preventDefault();
             e.stopPropagation();
 
@@ -268,13 +275,13 @@
     function updateSelectedStaff(panel) {
         collaborativeStaff.selectedStaff = [];
 
-        panel.find('.booknetic_collab_checkbox input:checked').each(function() {
+        panel.find('.booknetic_collab_checkbox input:checked').each(function () {
             collaborativeStaff.selectedStaff.push(parseInt($(this).data('staff-id')));
         });
 
         // Sync core selection class for compatibility with Booknetic internals
         panel.find('.booknetic_card').removeClass('booknetic_card_selected');
-        panel.find('.booknetic_collab_checkbox input:checked').each(function() {
+        panel.find('.booknetic_collab_checkbox input:checked').each(function () {
             var id = $(this).data('staff-id');
             panel.find('.booknetic_card[data-id="' + id + '"]').addClass('booknetic_card_selected');
         });

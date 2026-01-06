@@ -189,9 +189,20 @@
                                 </div>\
                                 <small class="form-text text-muted">Control guest detail requirements for this category’s bookings.</small>\
                             </div>\
-                        </div>\
-                    </div>\
-                ';
+                            <div class="form-group col-md-12">\
+                                <label class="form-label" for="bkntc_collab_service_selection_limit">\
+                                    <strong>Service Selection Limit</strong>\
+                                </label>\
+                                <input type="text" \
+                                       class="form-control" \
+                                       id="bkntc_collab_service_selection_limit" \
+                                       name="service_selection_limit" \
+                                       value="1">\
+                                <small class="form-text text-muted">Set the maximum number of services a customer can book within this category group.</small>\
+                            </div >\
+                        </div >\
+                    </div >\
+        ';
 
                 form.append(html);
                 console.log('Collaborative fields injected successfully');
@@ -258,13 +269,14 @@
                             var data = response.data;
                             var checkbox = $('#bkntc_collab_allow_multi_select');
                             var checkboxGuest = $('#bkntc_collab_guest_info_required');
+                            var inputServiceLimit = $('#bkntc_collab_service_selection_limit');
 
                             console.log('Checkbox element found:', checkbox.length > 0);
                             console.log('Setting allow_multi_select to:', data.allow_multi_select);
 
                             checkbox.prop('checked', data.allow_multi_select == 1);
                             checkboxGuest.prop('checked', data.guest_info_required == 1);
-
+                            inputServiceLimit.val(data.service_selection_limit || 1);
                             console.log('Checkbox now checked:', checkbox.is(':checked'));
                         } else {
                             console.error('Failed to load settings:', response.data ? response.data.message : 'Unknown error');
@@ -300,7 +312,10 @@
 
                 var checkboxGuest = $('#bkntc_collab_guest_info_required');
                 var guestRequired = checkboxGuest.is(':checked') ? 1 : 0;
+                var inputServiceLimit = $('#bkntc_collab_service_selection_limit');
+                var serviceSelectionLimit = parseInt(inputServiceLimit.val()) || 1;
 
+                console.log('=== Preparing to Save Collaborative Settings ===');
                 console.log('Checkbox element:', checkbox.length > 0 ? 'Found' : 'NOT FOUND');
                 console.log('Checkbox checked:', checkbox.is(':checked'));
                 console.log('Saving:', { categoryId: categoryId, allowMultiSelect: allowMultiSelect });
@@ -313,7 +328,8 @@
                         nonce: bkntcCollabCategory.nonce,
                         category_id: categoryId,
                         allow_multi_select: allowMultiSelect,
-                        guest_info_required: guestRequired
+                        guest_info_required: guestRequired,
+                        service_selection_limit: serviceSelectionLimit
                     },
                     success: function (response) {
                         console.log('=== COLLABORATIVE SETTINGS SAVE RESPONSE ===');

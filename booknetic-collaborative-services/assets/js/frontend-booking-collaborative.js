@@ -1,4 +1,4 @@
-(function($) {
+(function ($) {
     'use strict';
 
     if (typeof bookneticHooks === 'undefined') {
@@ -10,16 +10,16 @@
         categoryRules: null,
         selectedStaff: [],
 
-        init: function() {
+        init: function () {
             console.log('Collaborative booking frontend initialized');
             this.hookIntoBookingPanel();
         },
 
-        hookIntoBookingPanel: function() {
+        hookIntoBookingPanel: function () {
             var self = this;
 
             // Hook after booking panel loads
-            bookneticHooks.addAction('booking_panel_loaded', function(booknetic) {
+            bookneticHooks.addAction('booking_panel_loaded', function (booknetic) {
                 console.log('Booking panel loaded, initializing collaborative features');
                 self.booknetic = booknetic;
                 self.reorderSteps(booknetic);
@@ -27,7 +27,7 @@
             });
 
             // Hook when staff step is loading
-            bookneticHooks.addAction('before_step_loading', function(booknetic, new_step_id, old_step_id) {
+            bookneticHooks.addAction('before_step_loading', function (booknetic, new_step_id, old_step_id) {
                 if (new_step_id === 'staff') {
                     console.log('Staff step loading, preparing multi-staff UI');
                     self.prepareStaffStep(booknetic);
@@ -35,10 +35,10 @@
             });
 
             // Hook after staff step HTML is loaded
-            bookneticHooks.addFilter('step_loaded', function(result, booknetic, step_id) {
+            bookneticHooks.addFilter('step_loaded', function (result, booknetic, step_id) {
                 if (step_id === 'staff') {
                     console.log('Staff step HTML loaded, converting to multi-select');
-                    setTimeout(function() {
+                    setTimeout(function () {
                         self.convertStaffToMultiSelect(booknetic);
                     }, 100);
                 }
@@ -46,12 +46,12 @@
             });
 
             // Validate staff selection before moving forward
-            bookneticHooks.addFilter('step_validation_staff', function(result, booknetic) {
+            bookneticHooks.addFilter('step_validation_staff', function (result, booknetic) {
                 return self.validateStaffSelection(result, booknetic);
             });
         },
 
-        reorderSteps: function(booknetic) {
+        reorderSteps: function (booknetic) {
             var panel = booknetic.panel_js;
             var head = panel.find('.booknetic_appointment_steps_body');
             var body = panel.find('.booknetic_appointment_container_body');
@@ -71,7 +71,7 @@
                 'confirm_details'
             ];
 
-            desiredOrder.forEach(function(stepId) {
+            desiredOrder.forEach(function (stepId) {
                 var headEl = head.children('[data-step-id="' + stepId + '"]');
                 if (headEl.length) {
                     headEl.detach().appendTo(head);
@@ -104,21 +104,21 @@
             }
         },
 
-        attachServiceChangeListener: function(booknetic) {
+        attachServiceChangeListener: function (booknetic) {
             var self = this;
-            
+
             // Hook into booking panel to detect service selection
             var panel = booknetic.panel_js;
-            
+
             // Watch for service card clicks
-            panel.on('click', '.booknetic_service_card', function() {
+            panel.on('click', '.booknetic_service_card', function () {
                 var serviceId = $(this).data('id');
                 if (serviceId) {
                     console.log('Service selected:', serviceId);
                     self.fetchCategoryRules(serviceId, booknetic);
                 }
             });
-            
+
             // Also check if service is already selected (e.g., from URL params)
             var currentService = booknetic.getSelected.service();
             if (currentService > 0) {
@@ -127,7 +127,7 @@
             }
         },
 
-        fetchCategoryRules: function(service_id, booknetic) {
+        fetchCategoryRules: function (service_id, booknetic) {
             var self = this;
 
             $.ajax({
@@ -138,7 +138,7 @@
                     nonce: BookneticCollabFrontend.nonce,
                     service_id: service_id
                 },
-                success: function(response) {
+                success: function (response) {
                     console.log('Category rules response:', response);
                     if (response.success && response.data) {
                         self.categoryRules = response.data;
@@ -147,21 +147,27 @@
                         self.categoryRules = null;
                     }
                 },
-                error: function(xhr, status, error) {
+                error: function (xhr, status, error) {
                     console.error('Failed to fetch category rules:', error);
                     self.categoryRules = null;
                 }
             });
         },
 
-        prepareStaffStep: function(booknetic) {
+        prepareStaffStep: function (booknetic) {
             // Prepare any data needed before staff step loads
             console.log('Preparing staff step with rules:', this.categoryRules);
         },
 
-        convertStaffToMultiSelect: function(booknetic) {
+        convertStaffToMultiSelect: function (booknetic) {
             var self = this;
             var panel = booknetic.panel_js;
+
+            // Only convert to multi-select if category rules exist
+            if (!self.categoryRules) {
+                console.log('No category rules found, keeping single staff selection');
+                return;
+            }
 
             // Find staff cards
             var staffCards = panel.find('.booknetic_card_container .booknetic_card[data-id]');
@@ -177,7 +183,7 @@
             }
 
             // Add multi-select indicator to cards
-            staffCards.each(function() {
+            staffCards.each(function () {
                 var card = $(this);
                 var staffId = card.data('id');
 
@@ -194,19 +200,19 @@
 
             // Add hint text about min/max requirements
             var hintHtml = '<div class="booknetic_collab_staff_hint" style="padding: 15px; margin: 15px 0; background: #f0f7ff; border-left: 4px solid #2196F3; border-radius: 4px;">';
-            
+
             if (self.categoryRules && self.categoryRules.min && self.categoryRules.max) {
                 hintHtml += '<strong>Multi-Staff Booking:</strong> Select between ' + self.categoryRules.min + ' and ' + self.categoryRules.max + ' staff members.';
             } else {
                 hintHtml += '<strong>Multi-Staff Booking:</strong> You can select multiple staff members for this service.';
             }
-            
+
             hintHtml += '</div>';
 
             panel.find('.booknetic_card_container').before(hintHtml);
 
             // Override click behavior for multi-select
-            staffCards.off('click').on('click', function(e) {
+            staffCards.off('click').on('click', function (e) {
                 e.preventDefault();
                 e.stopPropagation();
 
@@ -291,17 +297,17 @@
             console.log('Staff multi-select UI initialized');
         },
 
-        updateSelectedStaff: function(panel) {
+        updateSelectedStaff: function (panel) {
             this.selectedStaff = [];
             var self = this;
 
-            panel.find('.booknetic_collab_checkbox input:checked').each(function() {
+            panel.find('.booknetic_collab_checkbox input:checked').each(function () {
                 self.selectedStaff.push(parseInt($(this).data('staff-id')));
             });
 
             // Sync core selection class for compatibility with Booknetic internals
             panel.find('.booknetic_card').removeClass('booknetic_card_selected');
-            panel.find('.booknetic_collab_checkbox input:checked').each(function() {
+            panel.find('.booknetic_collab_checkbox input:checked').each(function () {
                 var id = $(this).data('staff-id');
                 panel.find('.booknetic_card[data-id="' + id + '"]').addClass('booknetic_card_selected');
             });
@@ -309,18 +315,27 @@
             console.log('Selected staff updated:', this.selectedStaff);
         },
 
-        validateStaffSelection: function(result, booknetic) {
+        validateStaffSelection: function (result, booknetic) {
             var panel = booknetic.panel_js;
 
-            // Get selected staff
+            // Get selected staff from checkboxes (multi-select mode)
             var selectedStaff = [];
-            panel.find('.booknetic_collab_checkbox input:checked').each(function() {
+            panel.find('.booknetic_collab_checkbox input:checked').each(function () {
                 selectedStaff.push(parseInt($(this).data('staff-id')));
             });
 
             // Check if "Any staff" is selected
             if (panel.find('.booknetic_card[data-id="-1"]').hasClass('booknetic_selected')) {
                 selectedStaff = [-1];
+            }
+
+            // If no checkboxes selected, check for single selection (standard Booknetic selection)
+            if (selectedStaff.length === 0) {
+                var selectedCard = panel.find('.booknetic_card.booknetic_selected, .booknetic_card.booknetic_card_selected').not('[data-id="-1"]').first();
+                if (selectedCard.length > 0) {
+                    var staffId = selectedCard.data('id');
+                    selectedStaff = [staffId];
+                }
             }
 
             // Validate selection
@@ -357,7 +372,7 @@
     };
 
     // Initialize when document is ready
-    $(document).ready(function() {
+    $(document).ready(function () {
         collaborativeBooking.init();
     });
 

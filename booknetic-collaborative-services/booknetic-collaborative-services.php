@@ -596,7 +596,7 @@ final class BookneticCollaborativeServices {
         $max_staff = isset($_POST['max_staff']) ? intval($_POST['max_staff']) : null;
         $eligible_staff = isset($_POST['eligible_staff']) ? array_map('intval', (array)$_POST['eligible_staff']) : null;
         $guest_info_required = isset($_POST['guest_info_required']) ? intval($_POST['guest_info_required']) : null;
-
+        $service_selection_limit = isset($_POST['service_selection_limit']) ? intval($_POST['service_selection_limit']) : 0;
         if ($category_id <= 0) {
             wp_send_json_error(['message' => 'Invalid category ID']);
         }
@@ -612,6 +612,10 @@ final class BookneticCollaborativeServices {
             $update_data['allow_multi_select'] = $allow_multi_select;
             $update_format[] = '%d';
         }
+        if ($service_selection_limit !== 0) {
+            $update_data['service_selection_limit'] = $service_selection_limit;
+            $update_format[] = '%d';
+        }   
         if ($guest_info_required !== null) {
             $update_data['guest_info_required'] = $guest_info_required;
             $update_format[] = '%d';
@@ -680,7 +684,7 @@ final class BookneticCollaborativeServices {
             
             $category = $wpdb->get_row(
                 $wpdb->prepare(
-                    "SELECT collab_min_staff, collab_max_staff, collab_eligible_staff, guest_info_required, allow_multi_select FROM {$table} WHERE name = %s",
+                    "SELECT collab_min_staff, collab_max_staff, collab_eligible_staff, guest_info_required, allow_multi_select, service_selection_limit FROM {$table} WHERE name = %s",
                     $category_name
                 ),
                 ARRAY_A
@@ -688,6 +692,7 @@ final class BookneticCollaborativeServices {
             
             wp_send_json_success([
                 'allow_multi_select' => intval($category['allow_multi_select']) ?? 0,
+                'service_selection_limit' => intval($category['service_selection_limit']) ?? 0,
                 'category_name' => $category_name
             ]);
             return;
@@ -710,7 +715,7 @@ final class BookneticCollaborativeServices {
         
         $category = $wpdb->get_row(
             $wpdb->prepare(
-                "SELECT collab_min_staff, collab_max_staff, collab_eligible_staff, guest_info_required, allow_multi_select FROM {$table} WHERE id = %d",
+                "SELECT collab_min_staff, collab_max_staff, collab_eligible_staff, guest_info_required, allow_multi_select, service_selection_limit FROM {$table} WHERE id = %d",
                 $category_id
             ),
             ARRAY_A
@@ -722,6 +727,7 @@ final class BookneticCollaborativeServices {
                 'max_staff' => intval($category['collab_max_staff']),
                 'guest_info_required' => intval($category['guest_info_required']),
                 'allow_multi_select' => intval($category['allow_multi_select']),
+                'service_selection_limit' => intval($category['service_selection_limit'] ?? 0),
                 'eligible_staff' => $category['collab_eligible_staff'] ? json_decode($category['collab_eligible_staff'], true) : []
             ];
         } else {
@@ -730,6 +736,7 @@ final class BookneticCollaborativeServices {
                 'max_staff' => 0,
                 'guest_info_required' => 0,
                 'allow_multi_select' => 0,
+                'service_selection_limit' => 0,
                 'eligible_staff' => []
             ];
         }
@@ -1279,13 +1286,13 @@ final class BookneticCollaborativeServices {
             );
             
             // Enqueue step-based staff handler (follows Booknetic pattern)
-            wp_enqueue_script(
-                'bkntc-collab-staff-step',
-                BKNTCCS_PLUGIN_URL . 'assets/js/steps/step_staff_collaborative.js',
-                ['jquery', 'bkntc-collab-datetime-staff-step'],
-                time(), // Use timestamp for development
-                true
-            );
+            // wp_enqueue_script(
+            //     'bkntc-collab-staff-step',
+            //     BKNTCCS_PLUGIN_URL . 'assets/js/steps/step_staff_collaborative.js',
+            //     ['jquery', 'bkntc-collab-datetime-staff-step'],
+            //     time(), // Use timestamp for development
+            //     true
+            // );
             
             // Enqueue step-based information handler for multi-guest fields
             wp_enqueue_script(
@@ -1802,6 +1809,12 @@ final class BookneticCollaborativeServices {
         $multi_select_column = $wpdb->get_results("SHOW COLUMNS FROM {$categories_table} LIKE 'allow_multi_select'");
         if (empty($multi_select_column)) {
             $wpdb->query("ALTER TABLE {$categories_table} ADD COLUMN allow_multi_select TINYINT(1) DEFAULT 0");
+        }
+
+        // Add service_selection_limit if missing
+        $service_selection_limit = $wpdb->get_results("SHOW COLUMNS FROM {$categories_table} LIKE 'service_selection_limit'");
+        if (empty($service_selection_limit)) {
+            $wpdb->query("ALTER TABLE {$categories_table} ADD COLUMN service_selection_limit TINYINT(1) DEFAULT 0");
         }
 
         // Add guest_info_required if missing

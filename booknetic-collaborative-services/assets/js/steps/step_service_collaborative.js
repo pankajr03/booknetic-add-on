@@ -15,9 +15,22 @@
     // Make it globally accessible for other steps
     window.collaborativeService = collaborativeService;
 
+    // Reset state when "again booking" button is clicked
+    $(document).on('click', '.bkntc_again_booking', function () {
+        console.log('Service Collaborative: Again booking clicked, resetting state');
+        collaborativeService.categorySettings = null;
+        collaborativeService.selectedServices = [];
+        collaborativeService.isMultiSelectMode = false;
+    });
+
     // Hook after booking panel loads
     bookneticHooks.addAction('booking_panel_loaded', function (booknetic) {
         console.log('Service Collaborative: Booking panel loaded');
+
+        // Reset collaborative service state for new booking
+        collaborativeService.categorySettings = null;
+        collaborativeService.selectedServices = [];
+        collaborativeService.isMultiSelectMode = false;
     });
 
     // Before service step loads - call standard step loader
@@ -26,6 +39,15 @@
             return;
 
         console.log('Service Collaborative: Before service step loading');
+
+        // Reset collaborative service state for new booking (when old_step_id is null/undefined)
+        if (!old_step_id) {
+            console.log('Service Collaborative: New booking detected, resetting state');
+            collaborativeService.categorySettings = null;
+            collaborativeService.selectedServices = [];
+            collaborativeService.isMultiSelectMode = false;
+        }
+
         booknetic.stepManager.loadStandartSteps(new_step_id, old_step_id);
     });
 
@@ -39,14 +61,14 @@
         // Check if we need to enable multi-select mode
         setTimeout(function () {
             checkCategoryMultiSelect(booknetic);
-        }, 200);
+        }, 1000);
 
         // Listen for category changes (when user clicks on a different category)
         booknetic.panel_js.on('click', '.booknetic_category_accordion', function () {
             console.log('Service Collaborative: Category accordion clicked, re-checking multi-select settings');
             setTimeout(function () {
                 checkCategoryMultiSelect(booknetic);
-            }, 200);
+            }, 500);
         });
     });
 
@@ -656,11 +678,39 @@
                     collaborativeService.isMultiSelectMode = allowMulti;
                     if (allowMulti) {
                         console.log('✓ Service Collaborative: Multi-select ENABLED for category', categoryId);
+                        // Skip staff step for multi-select categories
+                        booknetic.panel_js.find('.booknetic_appointment_step_element[data-step-id="staff"]').addClass('booknetic_menu_hidden');
+                        if (booknetic.steps) {
+                            booknetic.steps = booknetic.steps.filter(step => step.id !== 'staff');
+                        }
+                        // Refresh navigation after modifying steps
+                        if (booknetic.stepManager && typeof booknetic.stepManager.refreshStepNumbers === 'function') {
+                            booknetic.stepManager.refreshStepNumbers();
+                        }
+                        if (booknetic.stepManager && typeof booknetic.stepManager.updateBookingPanelFooter === 'function') {
+                            booknetic.stepManager.updateBookingPanelFooter();
+                        }
+                        console.log('✓ Staff step skipped for multi-select category');
                         convertServiceToMultiSelect(booknetic);
                         console.log('Conversion complete');
                     } else {
                         console.log('✗ Service Collaborative: Single-select mode (allow_multi_select =', response.data.allow_multi_select, ')');
-                        // Remove multi-select UI if present
+                        // Ensure staff step is included for single-select categories
+                        booknetic.panel_js.find('.booknetic_appointment_step_element[data-step-id="staff"]').removeClass('booknetic_menu_hidden');
+                        if (booknetic.steps && !booknetic.steps.some(s => s.id === 'staff')) {
+                            // Add staff step after service
+                            var serviceIndex = booknetic.steps.findIndex(s => s.id === 'service');
+                            if (serviceIndex !== -1) {
+                                var staffName = booknetic.panel_js.find('.booknetic_appointment_step_element[data-step-id="staff"]').text().trim() || 'Staff';
+                                booknetic.steps.splice(serviceIndex + 1, 0, { id: 'staff', name: staffName });
+                            }
+                        }                        // Refresh navigation after modifying steps
+                        if (booknetic.stepManager && typeof booknetic.stepManager.refreshStepNumbers === 'function') {
+                            booknetic.stepManager.refreshStepNumbers();
+                        }
+                        if (booknetic.stepManager && typeof booknetic.stepManager.updateBookingPanelFooter === 'function') {
+                            booknetic.stepManager.updateBookingPanelFooter();
+                        }                        // Remove multi-select UI if present
                         revertServiceToSingleSelect(booknetic);
                     }
                 } else {

@@ -144,6 +144,9 @@
             combinedStep.isMultiServiceMode = true;
             combinedStep.selectedServices = selectedServices;
 
+            // Fetch service names if not present
+            fetchServiceNames(booknetic, selectedServices);
+
             // Store in panel data
             if (booknetic.panel_js) {
                 booknetic.panel_js.data('collab-multi-service-mode', true);
@@ -155,6 +158,54 @@
             combinedStep.isMultiServiceMode = false;
             console.log('Combined Step: Single-service mode');
         }
+    }
+
+    // Fetch service names for selected services
+    function fetchServiceNames(booknetic, selectedServices) {
+        // Check if names are already present
+        var needsFetch = false;
+        selectedServices.forEach(function (service) {
+            if (!service.name) {
+                needsFetch = true;
+            }
+        });
+
+        if (!needsFetch) {
+            console.log('Combined Step: Service names already present');
+            return;
+        }
+
+        console.log('Combined Step: Fetching service names');
+
+        // Get service IDs
+        var serviceIds = selectedServices.map(function (service) { return service.service_id; });
+
+        // Make AJAX call to get service names
+        $.ajax({
+            url: BookneticCollabFrontend.ajaxurl,
+            type: 'POST',
+            data: {
+                action: 'bkntc_collab_get_service_names',
+                nonce: BookneticCollabFrontend.nonce,
+                service_ids: serviceIds
+            },
+            success: function (response) {
+                if (response.success && response.data) {
+                    // Update selectedServices with names
+                    selectedServices.forEach(function (service) {
+                        if (response.data[service.service_id]) {
+                            service.name = response.data[service.service_id];
+                        }
+                    });
+                    console.log('Combined Step: Service names fetched and updated');
+                } else {
+                    console.error('Combined Step: Failed to fetch service names');
+                }
+            },
+            error: function (error) {
+                console.error('Combined Step: Error fetching service names', error);
+            }
+        });
     }
 
     // Add staff selection section below the standard datetime picker
@@ -310,7 +361,7 @@
         combinedStep.selectedServices.forEach(function (serviceItem, idx) {
             var serviceId = serviceItem.service_id;
             var staff = combinedStep.availableStaff[serviceId] || [];
-            var serviceName = 'Service #' + serviceId;
+            var serviceName = serviceItem.name || 'Service #' + serviceId;
 
             // Exclude staff already selected for previous services
             var filteredStaff = staff.filter(function (staffMember) {

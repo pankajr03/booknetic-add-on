@@ -933,7 +933,7 @@
                 var checkboxHtml = '<div class="booknetic_collab_service_checkbox" style="float: right; height: 100%; display: flex; align-items: center; padding-right: 10px; padding-left: 20px;">' +
                     '<input type="checkbox" data-service-id="' + serviceId + '" style="width: 18px; height: 18px; cursor: pointer;">' +
                     '</div>';
-                price.before(checkboxHtml);
+                price.after(checkboxHtml);
             }
 
             // Add assignment radios if not already added

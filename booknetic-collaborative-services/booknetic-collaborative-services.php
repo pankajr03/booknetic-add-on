@@ -104,6 +104,10 @@ final class BookneticCollaborativeServices {
         add_action('wp_ajax_bkntc_collab_load_combined_step', [$this, 'ajax_load_combined_step']);
         add_action('wp_ajax_nopriv_bkntc_collab_load_combined_step', [$this, 'ajax_load_combined_step']);
         
+        // AJAX handler for getting service names
+        add_action('wp_ajax_bkntc_collab_get_service_names', [$this, 'ajax_get_service_names']);
+        add_action('wp_ajax_nopriv_bkntc_collab_get_service_names', [$this, 'ajax_get_service_names']);
+        
         // Modify staff step rendering
         add_filter('bkntc_booking_panel_render_staff_info', [$this, 'modify_staff_step_output'], 10, 1);
         
@@ -1574,6 +1578,38 @@ final class BookneticCollaborativeServices {
             'calendar_data' => $calendar_data,
             'services' => $selected_services
         ]);
+    }
+    
+    public function ajax_get_service_names() {
+        // Allow both logged-in and non-logged-in users
+        if (!check_ajax_referer('bkntc_collab_frontend_nonce', 'nonce', false)) {
+            wp_send_json_error(['message' => 'Invalid nonce']);
+            return;
+        }
+        
+        $service_ids = isset($_POST['service_ids']) ? array_map('intval', (array)$_POST['service_ids']) : [];
+        
+        if (empty($service_ids)) {
+            wp_send_json_error(['message' => 'Service IDs required']);
+            return;
+        }
+        
+        global $wpdb;
+        
+        $services_table = $wpdb->prefix . 'bkntc_services';
+        $placeholders = implode(',', array_fill(0, count($service_ids), '%d'));
+        
+        $services = $wpdb->get_results($wpdb->prepare(
+            "SELECT id, name FROM {$services_table} WHERE id IN ({$placeholders})",
+            $service_ids
+        ), ARRAY_A);
+        
+        $service_names = [];
+        foreach ($services as $service) {
+            $service_names[$service['id']] = $service['name'];
+        }
+        
+        wp_send_json_success($service_names);
     }
     
     public function ajax_get_service_category() {

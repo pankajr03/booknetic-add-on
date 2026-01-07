@@ -1473,6 +1473,7 @@ final class BookneticCollaborativeServices {
         $service_id = isset($_POST['service_id']) ? intval($_POST['service_id']) : 0;
         $date = isset($_POST['date']) ? sanitize_text_field($_POST['date']) : '';
         $time = isset($_POST['time']) ? sanitize_text_field($_POST['time']) : '';
+        $timestamp = strtotime($date . ' ' . $time);
         
         if (!$service_id || !$date || !$time) {
             wp_send_json_error(['message' => 'Service ID, date, and time required']);
@@ -1483,6 +1484,7 @@ final class BookneticCollaborativeServices {
         
         $staff_table = $wpdb->prefix . 'bkntc_staff';
         $staff_services_table = $wpdb->prefix . 'bkntc_staff_services';
+        $appointments_table = $wpdb->prefix . 'bkntc_appointments';
         
         // Check if staff_services table exists
         $table_exists = $wpdb->get_var("SHOW TABLES LIKE '{$staff_services_table}'") === $staff_services_table;
@@ -1494,21 +1496,30 @@ final class BookneticCollaborativeServices {
                  FROM {$staff_table} s
                  INNER JOIN {$staff_services_table} ss ON s.id = ss.staff_id
                  WHERE s.is_active = 1 AND ss.service_id = %d
+                 AND NOT EXISTS (
+                     SELECT 1 FROM {$appointments_table} a
+                     WHERE a.staff_id = s.id 
+                     AND a.starts_at <= %d AND a.ends_at > %d
+                 )
                  ORDER BY s.name ASC",
-                $service_id
+                $service_id, $timestamp, $timestamp
             ), ARRAY_A);
+            
         } else {
             // Fallback: get all active staff (table doesn't exist)
-            $staff = $wpdb->get_results(
-                "SELECT id, name, email, profile_image
-                 FROM {$staff_table}
-                 WHERE is_active = 1
-                 ORDER BY name ASC",
-                ARRAY_A
-            );
+            $staff = $wpdb->get_results($wpdb->prepare(
+                "SELECT DISTINCT s.id, s.name, s.email, s.profile_image
+                 FROM {$staff_table} s
+                 WHERE s.is_active = 1
+                 AND NOT EXISTS (
+                     SELECT 1 FROM {$appointments_table} a
+                     WHERE a.staff_id = s.id
+                     AND a.starts_at <= %d AND a.ends_at > %d
+                 )
+                 ORDER BY s.name ASC",
+                $timestamp, $timestamp
+            ), ARRAY_A);
         }
-        
-        // TODO: In a real implementation, we would check availability against the timesheet and appointments
         
         wp_send_json_success([
             'staff' => $staff,
